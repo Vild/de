@@ -1,0 +1,8 @@
+name "de"
+description "A editor written in D"
+authors "Dan Printzell"
+copyright "Copyright © 2016, Dan Printzell"
+license "MPLv2"
+targetType "executable"
+
+dependency "derelict-sdl2" version="~>3.0.0-alpha.4"

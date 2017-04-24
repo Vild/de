@@ -1,0 +1,62 @@
+
+
+
+* Editor feature
+- Multiple cursors per file
+- Concept of a opened file
+- Concept of workspace and projects
+	- Concept of plain only folder (When you don't want to create a entire workspace)
+
+* Plugin system
+Features:
+- Load shared objects
+- IPC
+- Dependency handling
+- Virtual File System
+- Client and/or Server plugin
+- UI API
+	- Adding and controlling dockable containers
+	- Menubar
+- Loading/Saving of Plugin data
+	- At a global level (/)
+	- At a user level ($HOME)
+	- At a project level ($PROJECT)
+- Control over cursors
+
+Examples of plugins:
+- VFS
+	- Native filesystem
+	- Project filesystem (Everything is local to the project folder)
+	- FTP/SFTP
+- UI
+  - Terminal UI
+	- Software rendered UI
+	- GTK?
+	- QT?
+	- DlangUI?
+	- Wayland?
+- VCS
+  - GIT
+- Workspace management
+	- Build workspace (Like building a solution in VS)
+- Misc
+	- Debugging
+
+
+* Future goals and stuff
+- Global repository for plugin and updating of plugins, like code.dlang.org
+
+* What is a workspace? *Requirement*
+A workspace is collection of projects and project related settings.
+It is mostly used to work on more than one project at a time.
+
+It will store its data in a folder inside the workspace directory. =.de-workspace=
+=$PROJECTNAME.de= is the workspace file, for easy opening, maybe more.
+
+* What is a project?
+A project requires a workspace, to be able to be opened in the editor.
+The editor can't open a project by itself, it will be counted as a plain old folder in that case.
+
+=.de-project= for plugins to store their data
+
+

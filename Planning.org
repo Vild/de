@@ -1,0 +1,104 @@
+#+TITLE: DE
+#+AUTHOR: Dan Printzell
+#+EMAIL: me@vild.io 
+
+
+* Plugin system
+
+** *.so
+
+** Scripting aswell?
+
+** Ninja
+
+** Dub
+
+** Debugging
+
+* Terminal UI & GUI 
+
+* Rendering of text
+
+* Editing of text
+
+* Lazy load stuff?
+
+** User setting
+
+* Move Client/Server
+
+** Just save the clients state?
+
+*** Like emacs?
+
+* Virtual Filesystem
+
+** Storing projects
+
+** FTP/SFTP
+
+* Workspace-d support (or make my own better one :p)
+
+* Theme-able
+
+* Containers (dockable windows and toolbars)
+
+** Tabs, tabs everywhere
+
+* Code folding
+
+* Customizable rules, somehow connected with a syntax tree
+
+* Embedded terminal
+
+* Not single windows, multi monitor support
+
+* Tiling WM friendly!!!
+
+* Documentation support
+
+* `cloc` support
+
+* wakatime
+
+* Global & Local config spots
+
+* Multi cursor support
+
+* Error/Warning
+
+** inline - Per line
+
+** Error list
+
+* 'TODO/FIXME/XXX' list
+
+* Formatter
+
+* Auto completion
+
+* Syntax highlighting
+
+* Configuring encoding, line endings, tabs/spaces (tabs = 2space FTW!)
+
+* Outliner
+
+** Plugin?!
+
+* Statusbar
+
+* File browser
+
+** Using VFS
+
+* Toolbars
+
+* Ctrl+P/F1 menu?
+
+* PowerNex support
+
+* PowerNex Coding support!!!!!!!
+
+* +Remove support for non FOSS operating systems?+
+
+* Wayland & X & Future PowerNex system
