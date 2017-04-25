@@ -3,7 +3,7 @@
 	"versions": {
 		"derelict-ft": "1.1.3",
 		"derelict-gl3": "1.0.22",
-		"derelict-sdl2": "3.0.0-alpha.4",
+		"derelict-sdl2": "3.0.0-alpha.5",
 		"derelict-util": "3.0.0-alpha.2",
 		"dlangui": "0.9.50",
 		"dsfml": "2.1.1",

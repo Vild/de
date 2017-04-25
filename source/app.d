@@ -6,5 +6,5 @@ int main(string[] args) {
 	Engine engine = new Engine();
 	scope (exit)
 		engine.destroy;
-	return 0;
+	return engine.run();
 }
