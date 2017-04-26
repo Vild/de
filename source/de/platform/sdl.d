@@ -43,18 +43,36 @@ public:
 			case SDL_QUIT:
 				engine.quit();
 				break;
+
 			case SDL_WINDOWEVENT:
 				switch (event.window.event) {
-				case SDL_WINDOWEVENT_RESIZED:
+				case SDL_WINDOWEVENT_CLOSE:
+					engine.quit();
+					break;
+
+				case SDL_WINDOWEVENT_SIZE_CHANGED:
 					_width = event.window.data1;
 					_height = event.window.data2;
 					_resizeTexture();
 					engine.resize(_width, _height);
+					_wantRedisplay = true;
 					break;
+
+				case SDL_WINDOWEVENT_SHOWN:
+				case SDL_WINDOWEVENT_EXPOSED:
+					_wantRedisplay = true;
+					break;
+
 				default:
 					break;
 				}
 				break;
+
+			case SDL_KEYDOWN:
+				if (event.key.keysym.sym == SDLK_ESCAPE)
+					engine.quit();
+				break;
+
 			default:
 				break;
 			}
@@ -62,6 +80,7 @@ public:
 	}
 
 	void display(PixelMap pm) {
+		_wantRedisplay = false;
 		Color* pixels;
 		int pitch;
 
@@ -84,6 +103,10 @@ public:
 		return _title;
 	}
 
+	@property bool wantRedisplay() {
+		return _wantRedisplay;
+	}
+
 private:
 	SDL_Window* _window;
 	SDL_Renderer* _renderer;
@@ -91,6 +114,7 @@ private:
 
 	string _title;
 	int _width, _height;
+	bool _wantRedisplay;
 
 	void _resizeTexture() {
 		SDL_DestroyTexture(_texture);

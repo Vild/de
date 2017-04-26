@@ -6,3 +6,4 @@ license "MPLv2"
 targetType "executable"
 
 dependency "derelict-sdl2" version="~>3.0.0-alpha.4"
+dependency "derelict-ft" version="~>2.0.0-alpha.1"

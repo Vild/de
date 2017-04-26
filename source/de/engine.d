@@ -5,21 +5,22 @@ import de.config;
 import de.pixelmap;
 
 import std.math;
+import core.thread;
+import std.datetime;
 
 class Engine {
 public:
 	this() {
-		_width = 1920;
-		_height = 1080;
+		_width = 1280;
+		_height = 720;
 		_platform = new CurrentPlatform("DE", _width, _height);
 
 		_pm.data = new Color[_width * _height];
 		_pm.width = _width;
 		_pm.height = _height;
 
-		foreach (size_t idx, ref Color c; _pm.data)
-			c = Color(cast(ubyte)(idx * idx + idx), cast(ubyte)(idx + idx + idx - idx / 2), cast(ubyte)(idx * (idx + idx) + idx), 255);
-
+		foreach (ref Color c; _pm.data)
+			c = Color(0, 0, 0, 255);
 	}
 
 	~this() {
@@ -27,9 +28,14 @@ public:
 	}
 
 	int run() {
+		_wantRedraw = true;
 		while (!_quit) {
 			_platform.update(this);
-			_platform.display(_pm);
+			if (_wantRedraw || _platform.wantRedisplay) {
+				_platform.display(_pm);
+				_wantRedraw = false;
+			} else
+				Thread.sleep(10.msecs);
 		}
 		return 0;
 	}
@@ -47,8 +53,8 @@ public:
 		_pm.width = _width;
 		_pm.height = _height;
 
-		foreach (size_t idx, ref Color c; _pm.data)
-			c = Color(cast(ubyte)(idx * idx + idx), cast(ubyte)(idx + idx + idx - idx / 2), cast(ubyte)(idx * (idx + idx) + idx), 255);
+		foreach (ref Color c; _pm.data)
+			c = Color(0, 0, 0, 255);
 	}
 
 private:
@@ -56,4 +62,5 @@ private:
 	PixelMap _pm;
 	bool _quit = false;
 	int _width, _height;
+	bool _wantRedraw;
 }
