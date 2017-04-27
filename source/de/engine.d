@@ -3,6 +3,7 @@ module de.engine;
 import de.platform;
 import de.config;
 import de.pixelmap;
+import de.text;
 
 import std.math;
 import core.thread;
@@ -21,6 +22,9 @@ public:
 
 		foreach (ref Color c; _pm.data)
 			c = Color(0, 0, 0, 255);
+
+		ft = new FreeType("DejavuSansMono");
+		ft.render(_pm, "HelloWebFreak", 100, 100);
 	}
 
 	~this() {
@@ -55,11 +59,13 @@ public:
 
 		foreach (ref Color c; _pm.data)
 			c = Color(0, 0, 0, 255);
+		ft.render(_pm, "HelloWebFreak", 100, 100);
 	}
 
 private:
 	IPlatform _platform;
 	PixelMap _pm;
+	FreeType ft;
 	bool _quit = false;
 	int _width, _height;
 	bool _wantRedraw;
