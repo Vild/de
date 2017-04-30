@@ -22,18 +22,24 @@ public:
 		_pm.width = _width;
 		_pm.height = _height;
 
-		ft = new FreeType(FONT);
+		_ft = new FreeType(FONT);
 
-		textBuffer = new TextBuffer();
-		textBuffer.addLine(0, "HelloWebFreak1", 32);
-		textBuffer.addLine(2, "HelloWebFreak2", 32);
-		textBuffer.addLine(0, "HelloWebFreak3", 32);
-		textBuffer.addLine(3, "HelloWebFreak4", 32);
-		textBuffer.addLine(1, "HelloWebFreak5", 32);
+		_textBuffer = new TextBuffer();
 	}
 
 	~this() {
 		_platform.destroy;
+	}
+
+	void loadFile(string path) {
+		import std.stdio : File;
+		import std.algorithm : each;
+		import std.conv : to;
+
+		_textBuffer.clear();
+
+		File file = File(path);
+		file.byLine().each!(l => _textBuffer.addLine(size_t.max, l.to!dstring, 32));
 	}
 
 	int run() {
@@ -46,9 +52,9 @@ public:
 					c = Color(0, 0, 0, 255);
 
 				long y = 0;
-				foreach (Line* l; textBuffer.lines) {
+				foreach (Line* l; _textBuffer.lines) {
 					if (auto _ = l.data.peek!TextLine)
-						ft.render(_pm, _.text, 0, y + l.height);
+						_ft.render(_pm, _.text, 0, y + l.height);
 					else
 						assert(0, "TODO: implement");
 					y += l.height;
@@ -79,10 +85,10 @@ public:
 private:
 	IPlatform _platform;
 	PixelMap _pm;
-	FreeType ft;
+	FreeType _ft;
 	bool _quit = false;
 	size_t _width, _height;
 	bool _wantRedraw;
 
-	TextBuffer textBuffer;
+	TextBuffer _textBuffer;
 }

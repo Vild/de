@@ -31,6 +31,12 @@ public:
 			l.destroy;
 	}
 
+	void clear() {
+		foreach (Line* l; _lines)
+			l.destroy;
+		_lines = null;
+	}
+
 	void addLine(size_t idx, dstring text, size_t height) {
 		return addLine(idx, new Line(Line.Data(TextLine(text, height))));
 	}
