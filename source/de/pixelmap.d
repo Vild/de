@@ -9,6 +9,6 @@ struct Color {
 }
 
 struct PixelMap {
-	int width, height;
+	size_t width, height;
 	Color[] data;
 }

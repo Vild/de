@@ -3,11 +3,13 @@ module de.engine;
 import de.platform;
 import de.config;
 import de.pixelmap;
-import de.text;
+import de.textrenderer;
+import de.textbuffer;
 
 import std.math;
 import core.thread;
 import std.datetime;
+import std.stdio;
 
 class Engine {
 public:
@@ -20,11 +22,14 @@ public:
 		_pm.width = _width;
 		_pm.height = _height;
 
-		foreach (ref Color c; _pm.data)
-			c = Color(0, 0, 0, 255);
+		ft = new FreeType(FONT);
 
-		ft = new FreeType("DejavuSansMono");
-		ft.render(_pm, "HelloWebFreak", 100, 100);
+		textBuffer = new TextBuffer();
+		textBuffer.addLine(0, "HelloWebFreak1", 32);
+		textBuffer.addLine(2, "HelloWebFreak2", 32);
+		textBuffer.addLine(0, "HelloWebFreak3", 32);
+		textBuffer.addLine(3, "HelloWebFreak4", 32);
+		textBuffer.addLine(1, "HelloWebFreak5", 32);
 	}
 
 	~this() {
@@ -36,6 +41,19 @@ public:
 		while (!_quit) {
 			_platform.update(this);
 			if (_wantRedraw || _platform.wantRedisplay) {
+				//TODO: make better
+				foreach (ref Color c; _pm.data)
+					c = Color(0, 0, 0, 255);
+
+				long y = 0;
+				foreach (Line* l; textBuffer.lines) {
+					if (auto _ = l.data.peek!TextLine)
+						ft.render(_pm, _.text, 0, y + l.height);
+					else
+						assert(0, "TODO: implement");
+					y += l.height;
+				}
+
 				_platform.display(_pm);
 				_wantRedraw = false;
 			} else
@@ -48,7 +66,7 @@ public:
 		_quit = true;
 	}
 
-	void resize(int width, int height) {
+	void resize(size_t width, size_t height) {
 		_width = width;
 		_height = height;
 
@@ -56,10 +74,6 @@ public:
 		_pm.data = new Color[_width * _height];
 		_pm.width = _width;
 		_pm.height = _height;
-
-		foreach (ref Color c; _pm.data)
-			c = Color(0, 0, 0, 255);
-		ft.render(_pm, "HelloWebFreak", 100, 100);
 	}
 
 private:
@@ -67,6 +81,8 @@ private:
 	PixelMap _pm;
 	FreeType ft;
 	bool _quit = false;
-	int _width, _height;
+	size_t _width, _height;
 	bool _wantRedraw;
+
+	TextBuffer textBuffer;
 }

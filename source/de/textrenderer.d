@@ -1,4 +1,4 @@
-module de.text;
+module de.textrenderer;
 
 import derelict.freetype.ft;
 
@@ -43,12 +43,12 @@ public:
 		FT_Done_Library(_library);
 	}
 
-	void render(ref PixelMap pm, dstring str, int x, int y, Color color = Color(255, 255, 255, 255)) {
+	void render(ref PixelMap pm, dstring str, long x, long y, Color color = Color(255, 255, 255, 255)) {
 		foreach (ch; str)
 			render(pm, ch, x, y, color);
 	}
 
-	void render(ref PixelMap pm, dchar ch, ref int x, ref int y, Color color = Color(255, 255, 255, 255)) {
+	void render(ref PixelMap pm, dchar ch, ref long x, ref long y, Color color = Color(255, 255, 255, 255)) {
 		auto glyph_index = FT_Get_Char_Index(_face, ch);
 		FT_Load_Glyph(_face, glyph_index, FT_LOAD_DEFAULT).enforceFT;
 		FT_Render_Glyph(_face.glyph, FT_RENDER_MODE_NORMAL).enforceFT;
@@ -63,13 +63,14 @@ private:
 	FT_Library _library;
 	FT_Face _face;
 
-	void _draw(ref PixelMap image, const ref FT_Bitmap bitmap, int x, int y, Color color) {
+	void _draw(ref PixelMap image, const ref FT_Bitmap bitmap, long x, long y, Color color) {
 		if (bitmap.pitch <= 0)
 			return;
-		int w = bitmap.width;
-		int h = bitmap.rows;
+		long w = bitmap.width;
+		long h = bitmap.rows;
 		if (x + w < 0 || y + h < 0 || x >= image.width || y >= image.height)
 			return;
+
 		if (x < 0) {
 			w -= x;
 			x = 0;
@@ -80,17 +81,17 @@ private:
 			w = image.width - x - 1;
 
 		if (bitmap.pixel_mode == FT_PIXEL_MODE_GRAY) {
-			for (int ly; ly < h; ly++) {
+			for (size_t ly; ly < h; ly++) {
 				if (ly + y < 0 || ly + y >= image.height)
 					continue;
-				for (int lx; lx < w; lx++)
+				for (size_t lx; lx < w; lx++)
 					image.data[lx + x + (ly + y) * image.width] = color * bitmap.buffer[lx + ly * bitmap.pitch];
 			}
 		} else if (bitmap.pixel_mode == FT_PIXEL_MODE_MONO) {
-			for (int ly; ly < h; ly++) {
+			for (size_t ly; ly < h; ly++) {
 				if (ly + y < 0 || ly + y >= image.height)
 					continue;
-				for (int lx; lx < w; lx++)
+				for (size_t lx; lx < w; lx++)
 					if (bitmap.buffer[(lx / 8) + ly * bitmap.pitch] & (1 << (7 - (lx % 8))))
 						image.data[lx + x + (ly + y) * image.width] = color;
 			}
@@ -121,7 +122,7 @@ enum FTErrors {
 	FT_Err_Cannot_Render_Glyph = 0x13,
 	FT_Err_Invalid_Outline = 0x14,
 	FT_Err_Invalid_Composite = 0x15,
-	FT_Err_Too_Many_Hints = 0x16,
+	FT_Err_Too_Many_Hsize_ts = 0x16,
 	FT_Err_Invalid_Pixel_Size = 0x17,
 
 	FT_Err_Invalid_Handle = 0x20,

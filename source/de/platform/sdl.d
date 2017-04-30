@@ -18,16 +18,16 @@ shared static ~this() {
 
 class SDLPlatform : IPlatform {
 public:
-	this(string title, int width, int height) {
+	this(string title, size_t width, size_t height) {
 		_title = title;
 		_width = width;
 		_height = height;
-		_window = SDL_CreateWindow(title.toStringz, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height,
-				SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
+		_window = SDL_CreateWindow(title.toStringz, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, cast(int)width,
+				cast(int)height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
 		assert(_window, "Failed to create window");
 		_renderer = SDL_CreateRenderer(_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 		assert(_renderer, "Failed to create renderer");
-		_texture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+		_texture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, cast(int)width, cast(int)height);
 		assert(_texture, "Failed to create texture");
 	}
 
@@ -113,12 +113,12 @@ private:
 	SDL_Texture* _texture;
 
 	string _title;
-	int _width, _height;
+	size_t _width, _height;
 	bool _wantRedisplay;
 
 	void _resizeTexture() {
 		SDL_DestroyTexture(_texture);
-		_texture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, _width, _height);
+		_texture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, cast(int)_width, cast(int)_height);
 		assert(_texture, "Failed to create texture");
 	}
 }
