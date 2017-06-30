@@ -19,10 +19,15 @@ public:
 		_height = 720;
 		_platform = new CurrentPlatform("DE", _width, _height);
 
-		_pm = new PixelMap();
-		_pm.data = new Color[_width * _height];
-		_pm.width = _width;
-		_pm.height = _height;
+		_pmFront = new PixelMap();
+		_pmFront.data = new Color[_width * _height];
+		_pmFront.width = _width;
+		_pmFront.height = _height;
+
+		_pmBack = new PixelMap();
+		_pmBack.data = new Color[_width * _height];
+		_pmBack.width = _width;
+		_pmBack.height = _height;
 
 		_ft = new FreeType(FONT);
 
@@ -57,8 +62,19 @@ public:
 			_platform.update(this);
 			if (_wantRedraw || _platform.wantRedisplay) {
 				//TODO: make better
-				foreach (ref Color c; _pm.data)
-					c = Color(0, 0, 0, 255);
+
+				foreach (ref Color c; _pmFront.data)
+					c = Color(0, 0, 0, 0);
+
+				Color bg = Color(0, 0, 0, 255);
+				outer_loop: foreach (Line* line; _textBuffer.lines)
+					foreach (part; line.parts)
+						if (TextPart* _ = part.peek!TextPart) {
+							bg = _.bg;
+							break outer_loop;
+						}
+				foreach (ref Color c; _pmBack.data)
+					c = bg;
 
 				int counter = 0;
 				long y = 0;
@@ -69,9 +85,9 @@ public:
 					foreach (part; line.parts) {
 						if (TextPart* _ = part.peek!TextPart) {
 							long myX = _.getSize(_ft).x;
-							for (long yy = y; yy < y + size.y && yy < _pm.height; yy++)
+							for (long yy = y; yy < y + size.y && yy < _pmBack.height; yy++)
 								for (long xx = x; xx < x + myX; xx++)
-									_pm.data[yy * _pm.width + xx] = _.bg;
+									_pmBack.data[yy * _pmBack.width + xx] = _.bg;
 							x += myX;
 						}
 					}
@@ -80,17 +96,20 @@ public:
 
 					foreach (part; line.parts) {
 						if (TextPart* _ = part.peek!TextPart) {
-							_ft.render(_pm, *_, x, y + size.y);
+							_ft.render(_pmFront, *_, x, y + size.y);
 							x += _.getSize(_ft).x;
 						} else
 							assert(0, "TODO: implement");
 					}
 					y += size.y;
-					if (y >= _pm.height)
+					if (y >= _pmFront.height)
 						break;
 				}
 
-				_platform.display(_pm);
+				foreach (idx, const ref Color c; _pmFront.data)
+					_pmBack.data[idx] = mix(_pmBack.data[idx], c, c.a);
+
+				_platform.display(_pmBack);
 				_wantRedraw = false;
 			} else
 				Thread.sleep(10.msecs);
@@ -106,15 +125,21 @@ public:
 		_width = width;
 		_height = height;
 
-		_pm.data.destroy;
-		_pm.data = new Color[_width * _height];
-		_pm.width = _width;
-		_pm.height = _height;
+		_pmFront.data.destroy;
+		_pmFront.data = new Color[_width * _height];
+		_pmFront.width = _width;
+		_pmFront.height = _height;
+
+		_pmBack.data.destroy;
+		_pmBack.data = new Color[_width * _height];
+		_pmBack.width = _width;
+		_pmBack.height = _height;
 	}
 
 private:
 	IPlatform _platform;
-	PixelMap _pm;
+	PixelMap _pmFront; // Text
+	PixelMap _pmBack; // Background
 	FreeType _ft;
 	bool _quit = false;
 	size_t _width, _height;

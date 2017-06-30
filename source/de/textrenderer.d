@@ -130,8 +130,7 @@ private:
 				if (ly + y < 0 || ly + y >= image.height)
 					continue;
 				for (size_t lx; lx < w; lx++)
-					image.data[lx + x + (ly + y) * image.width] = mix(image.data[lx + x + (ly + y) * image.width], fg,
-							bitmap.buffer[lx + ly * bitmap.pitch] / (bitmap.num_grays * 1.0f));
+					image.data[lx + x + (ly + y) * image.width] = fg * (bitmap.buffer[lx + ly * bitmap.pitch] / (bitmap.num_grays * 1.0f));
 			}
 		} else if (bitmap.pixel_mode == FT_PIXEL_MODE_MONO) {
 			for (size_t ly; ly < h; ly++) {
