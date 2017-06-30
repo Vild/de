@@ -8,18 +8,11 @@ import de.engine;
 import de.pixelmap;
 import de.container;
 
-shared static this() {
-	DerelictSDL2.load();
-	SDL_Init(SDL_INIT_EVENTS | SDL_INIT_VIDEO);
-}
-
-shared static ~this() {
-	SDL_Quit();
-}
-
 class SDLPlatform : IPlatform {
 public:
 	this(string title, size_t width, size_t height) {
+		DerelictSDL2.load();
+		SDL_Init(SDL_INIT_EVENTS | SDL_INIT_VIDEO);
 		_title = title;
 		_width = width;
 		_height = height;
@@ -35,6 +28,7 @@ public:
 	~this() {
 		SDL_DestroyRenderer(_renderer);
 		SDL_DestroyWindow(_window);
+		SDL_Quit();
 	}
 
 	void update(Engine engine) {
