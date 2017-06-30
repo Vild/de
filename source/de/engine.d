@@ -5,6 +5,7 @@ import de.config;
 import de.pixelmap;
 import de.textrenderer;
 import de.textbuffer;
+import de.container;
 
 import std.math;
 import core.thread;
@@ -18,6 +19,7 @@ public:
 		_height = 720;
 		_platform = new CurrentPlatform("DE", _width, _height);
 
+		_pm = new PixelMap();
 		_pm.data = new Color[_width * _height];
 		_pm.width = _width;
 		_pm.height = _height;
@@ -39,10 +41,17 @@ public:
 		_textBuffer.clear();
 
 		File file = File(path);
+		import std.math : sqrt;
+
 		file.byLine().each!(l => _textBuffer.addLine(size_t.max, l.to!dstring, 32));
 	}
 
 	int run() {
+		immutable Color[16] colors = [Color(0, 0, 0, 255), Color(0, 0, 170, 255), Color(0, 170, 0, 255), Color(0, 170, 170,
+				255), Color(170, 0, 0, 255), Color(170, 0, 170, 255), Color(170, 85, 0, 255), Color(170, 170, 170, 255),
+			Color(85, 85, 85, 255), Color(85, 85, 255, 255), Color(85, 255, 85, 255), Color(85, 255, 255, 255), Color(255,
+					85, 85, 255), Color(255, 85, 255, 255), Color(255, 255, 85, 255), Color(255, 255, 255, 255)];
+
 		_wantRedraw = true;
 		while (!_quit) {
 			_platform.update(this);
@@ -51,13 +60,34 @@ public:
 				foreach (ref Color c; _pm.data)
 					c = Color(0, 0, 0, 255);
 
+				int counter = 0;
 				long y = 0;
-				foreach (Line* l; _textBuffer.lines) {
-					if (auto _ = l.data.peek!TextLine)
-						_ft.render(_pm, _.text, 0, y + l.height);
-					else
-						assert(0, "TODO: implement");
-					y += l.height;
+				foreach (Line* line; _textBuffer.lines) {
+					long x = 0;
+					Vec2!ulong size = line.getSize(_ft);
+
+					foreach (part; line.parts) {
+						if (TextPart* _ = part.peek!TextPart) {
+							long myX = _.getSize(_ft).x;
+							for (long yy = y; yy < y + size.y && yy < _pm.height; yy++)
+								for (long xx = x; xx < x + myX; xx++)
+									_pm.data[yy * _pm.width + xx] = _.bg;
+							x += myX;
+						}
+					}
+
+					x = 0;
+
+					foreach (part; line.parts) {
+						if (TextPart* _ = part.peek!TextPart) {
+							_ft.render(_pm, *_, x, y + size.y);
+							x += _.getSize(_ft).x;
+						} else
+							assert(0, "TODO: implement");
+					}
+					y += size.y;
+					if (y >= _pm.height)
+						break;
 				}
 
 				_platform.display(_pm);

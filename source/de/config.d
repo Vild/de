@@ -1,6 +1,6 @@
 module de.config;
 
-string FONT = "DejavuSansMono";
+string FONT = "Dejavu Sans Mono";
 
 public:
 version (linux) {

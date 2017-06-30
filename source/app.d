@@ -7,8 +7,7 @@ int main(string[] args) {
 	scope (exit)
 		engine.destroy;
 
-	if (args.length > 1)
-		engine.loadFile(args[1]);
+	engine.loadFile((args.length > 1) ? args[1] : "Planning.org");
 
 	return engine.run();
 }

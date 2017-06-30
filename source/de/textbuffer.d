@@ -2,25 +2,47 @@ module de.textbuffer;
 
 import std.variant : Algebraic;
 
+import de.container;
 import de.pixelmap;
+import de.textrenderer;
 
-struct TextLine {
+enum TextStyle {
+	none = 0,
+	bold = 1 << 0,
+	underscore = 1 << 1,
+	italic = 1 << 2
+}
+
+struct TextPart {
 	dstring text;
-	size_t height;
-	//TODO: custom font stuff
+	TextStyle style;
+	size_t fontSize;
+	Color fg, bg;
+
+	Vec2!ulong getSize(FreeType ft) {
+		return ft.getSize(text, style, fontSize);
+	}
 }
 
 struct Line {
-	alias Data = Algebraic!(TextLine, PixelMap);
-	Data data;
+	alias Data = Algebraic!(TextPart, PixelMap);
+	Data[] parts;
 
-	@property size_t height() {
-		if (auto _ = data.peek!TextLine)
-			return _.height;
-		else if (auto _ = data.peek!PixelMap)
-			return _.height;
-		else
-			assert(0);
+	Vec2!ulong getSize(FreeType ft) {
+		import std.algorithm : max;
+
+		Vec2!ulong size;
+		foreach (p; parts) {
+			Vec2!ulong s;
+			if (auto _ = p.peek!TextPart)
+				s = _.getSize(ft);
+			else if (auto _ = p.peek!PixelMap)
+				s = _.getSize();
+
+			size.x += s.x;
+			size.y = size.y.max(s.y);
+		}
+		return size;
 	}
 }
 
@@ -37,12 +59,16 @@ public:
 		_lines = null;
 	}
 
-	void addLine(size_t idx, dstring text, size_t height) {
-		return addLine(idx, new Line(Line.Data(TextLine(text, height))));
+	void addLine(size_t idx, dstring text, size_t fontSize, Color fg = Color(255, 255, 255, 255), Color bg = Color(0, 34, 34, 255)) {
+		Line* line = new Line();
+		line.parts = [Line.Data(TextPart(text, TextStyle.none, fontSize, fg, bg))];
+		return addLine(idx, line);
 	}
 
 	void addLine(size_t idx, PixelMap pixelMap) {
-		return addLine(idx, new Line(Line.Data(pixelMap)));
+		Line* line = new Line();
+		line.parts = [Line.Data(pixelMap)];
+		return addLine(idx, line);
 	}
 
 	void addLine(size_t idx, Line* line) {

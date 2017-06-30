@@ -3,10 +3,11 @@
 	"versions": {
 		"derelict-ft": "2.0.0-alpha.1",
 		"derelict-gl3": "1.0.22",
-		"derelict-sdl2": "3.0.0-alpha.5",
+		"derelict-sdl2": "3.0.0-alpha.6",
 		"derelict-util": "3.0.0-alpha.2",
 		"dlangui": "0.9.50",
 		"dsfml": "2.1.1",
+		"fontconfig": "1.1.0",
 		"x11": "1.0.16"
 	}
 }

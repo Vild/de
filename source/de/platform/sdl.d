@@ -6,6 +6,7 @@ import std.string : toStringz;
 import de.platform;
 import de.engine;
 import de.pixelmap;
+import de.container;
 
 shared static this() {
 	DerelictSDL2.load();
@@ -27,7 +28,7 @@ public:
 		assert(_window, "Failed to create window");
 		_renderer = SDL_CreateRenderer(_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 		assert(_renderer, "Failed to create renderer");
-		_texture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, cast(int)width, cast(int)height);
+		_texture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, cast(int)width, cast(int)height);
 		assert(_texture, "Failed to create texture");
 	}
 
@@ -118,7 +119,7 @@ private:
 
 	void _resizeTexture() {
 		SDL_DestroyTexture(_texture);
-		_texture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, cast(int)_width, cast(int)_height);
+		_texture = SDL_CreateTexture(_renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, cast(int)_width, cast(int)_height);
 		assert(_texture, "Failed to create texture");
 	}
 }

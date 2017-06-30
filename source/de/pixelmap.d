@@ -1,14 +1,12 @@
 module de.pixelmap;
 
-struct Color {
-	ubyte r, g, b, a;
+import de.container;
 
-	Color opBinary(string op : "*")(ubyte other) {
-		return Color(r * other / 255, g * other / 255, b * other / 255, a);
-	}
-}
-
-struct PixelMap {
-	size_t width, height;
+class PixelMap {
+	ulong width, height;
 	Color[] data;
+
+	Vec2!ulong getSize() {
+		return Vec2!ulong(width, height);
+	}
 }

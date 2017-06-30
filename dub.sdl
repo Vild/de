@@ -7,3 +7,4 @@ targetType "executable"
 
 dependency "derelict-sdl2" version="~>3.0.0-alpha.4"
 dependency "derelict-ft" version="~>2.0.0-alpha.1"
+dependency "fontconfig" version="~>1.1.0"

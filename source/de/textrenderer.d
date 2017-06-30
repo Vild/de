@@ -1,11 +1,14 @@
 module de.textrenderer;
 
 import derelict.freetype.ft;
+import fontconfig.fontconfig;
 
 import std.string;
 import std.conv;
 
 import de.pixelmap;
+import de.textbuffer;
+import de.container;
 
 shared static this() {
 	DerelictFT.load();
@@ -13,47 +16,89 @@ shared static this() {
 
 class FreeType {
 public:
-	this(string font) {
+	this(string fontName) {
+		import std.stdio : writefln;
 		import std.process : execute;
 		import std.file : dirEntries, SpanMode, exists;
 		import std.path : expandTilde, baseName;
 
 		FT_Init_FreeType(&_library).enforceFT;
 
-		auto fontProc = execute(["fc-match", font]);
-		if (fontProc.status != 0)
-			throw new Exception("fc-match returned non-zero");
-		auto idx = fontProc.output.indexOf(':');
-		string fontFile = fontProc.output[0 .. idx];
-		string absPath;
-		foreach (file; dirEntries("/usr/share/fonts", SpanMode.depth))
-			if (file.baseName == fontFile)
-				absPath = file;
-		if ("~/.local/share/fonts".expandTilde.exists)
-			foreach (file; dirEntries("~/.local/share/fonts".expandTilde, SpanMode.depth))
-				if (file.baseName == fontFile)
-					absPath = file;
+		assert(FcInit());
+		const compareFamily = fontName.strip.toLower;
 
-		FT_New_Face(_library, absPath.toStringz, 0, &_face).enforceFT;
-		FT_Set_Pixel_Sizes(_face, 0, 32).enforceFT;
+		string fontPath;
+
+		writefln("Searching for font '%s'...", fontName);
+
+		FcPattern* pat = FcPatternCreate();
+		FcObjectSet* os = FcObjectSetBuild(FC_FAMILY.ptr, FC_STYLE.ptr, FC_LANG.ptr, FC_FILE.ptr, null);
+		FcFontSet* fs = FcFontList(null, pat, os);
+		assert(fs);
+		foreach (FcPattern* font; fs.fonts[0 .. fs.nfont]) {
+			char* file, style, family;
+			if (FcPatternGetString(font, FC_FILE, 0, &file) != FcResult.FcResultMatch || FcPatternGetString(font, FC_FAMILY,
+					0, &family) != FcResult.FcResultMatch || FcPatternGetString(font, FC_STYLE, 0, &style) != FcResult.FcResultMatch)
+				continue;
+
+			auto dFamily = family.fromStringz;
+			if (dFamily.strip.toLower != compareFamily)
+				continue;
+			auto dFile = file.fromStringz;
+			auto dStyle = style.fromStringz;
+
+			writefln("\tFound: %s (style %s)", dFile, dStyle);
+			//TODO: Support bold and stuff
+			if (dStyle == "Regular" || dStyle == "Book")
+				fontPath = (cast(string)dFile).dup;
+		}
+		FcFontSetDestroy(fs);
+
+		assert(fontPath.length);
+
+		FT_New_Face(_library, fontPath.toStringz, 0, &_face).enforceFT;
 	}
 
 	~this() {
 		FT_Done_Face(_face);
+
+		FcFini();
+
 		FT_Done_Library(_library);
 	}
 
-	void render(ref PixelMap pm, dstring str, long x, long y, Color color = Color(255, 255, 255, 255)) {
-		foreach (ch; str)
-			render(pm, ch, x, y, color);
+	Vec2!ulong getSize(dstring str, TextStyle style, size_t fontSize) {
+		import std.algorithm : max, min;
+
+		ulong w, h;
+		FT_Set_Char_Size(_face, 0, cast(uint)fontSize * 64 + 32, 0, 0).enforceFT;
+		foreach (ch; str) {
+			FT_Glyph glyph;
+			auto glyph_index = FT_Get_Char_Index(_face, ch);
+
+			int FT_LOAD_BITMAP_METRICS_ONLY = 1 << 22;
+			FT_Load_Glyph(_face, glyph_index, FT_LOAD_DEFAULT | FT_LOAD_COMPUTE_METRICS | FT_LOAD_BITMAP_METRICS_ONLY).enforceFT;
+			FT_Get_Glyph(_face.glyph, &glyph);
+
+			w += _face.glyph.advance.x >> 6;
+			h = h.max(_face.glyph.metrics.height >> 6);
+		}
+		return Vec2!ulong(w, cast(ulong)(h * 1.5));
 	}
 
-	void render(ref PixelMap pm, dchar ch, ref long x, ref long y, Color color = Color(255, 255, 255, 255)) {
+	void render(ref PixelMap pm, ref TextPart text, long x, long y) {
+		FT_Set_Char_Size(_face, 0, cast(uint)text.fontSize * 64 + 32, 0, 0).enforceFT;
+		foreach (ch; text.text)
+			render(pm, ch, text.style, text.fontSize, x, y, text.fg);
+	}
+
+	void render(ref PixelMap pm, dchar ch, TextStyle style, size_t fontSize, ref long x, ref long y, Color fg) {
 		auto glyph_index = FT_Get_Char_Index(_face, ch);
+
 		FT_Load_Glyph(_face, glyph_index, FT_LOAD_DEFAULT).enforceFT;
 		FT_Render_Glyph(_face.glyph, FT_RENDER_MODE_NORMAL).enforceFT;
 
-		_draw(pm, _face.glyph.bitmap, x + _face.glyph.bitmap_left, y - _face.glyph.bitmap_top, color);
+		_draw(pm, _face.glyph.bitmap, x + _face.glyph.bitmap_left, y - _face.glyph.bitmap_top, fg);
 
 		x += _face.glyph.advance.x >> 6;
 		y += _face.glyph.advance.y >> 6;
@@ -63,7 +108,7 @@ private:
 	FT_Library _library;
 	FT_Face _face;
 
-	void _draw(ref PixelMap image, const ref FT_Bitmap bitmap, long x, long y, Color color) {
+	void _draw(ref PixelMap image, const ref FT_Bitmap bitmap, long x, long y, Color fg) {
 		if (bitmap.pitch <= 0)
 			return;
 		long w = bitmap.width;
@@ -85,7 +130,8 @@ private:
 				if (ly + y < 0 || ly + y >= image.height)
 					continue;
 				for (size_t lx; lx < w; lx++)
-					image.data[lx + x + (ly + y) * image.width] = color * bitmap.buffer[lx + ly * bitmap.pitch];
+					image.data[lx + x + (ly + y) * image.width] = mix(image.data[lx + x + (ly + y) * image.width], fg,
+							bitmap.buffer[lx + ly * bitmap.pitch] / (bitmap.num_grays * 1.0f));
 			}
 		} else if (bitmap.pixel_mode == FT_PIXEL_MODE_MONO) {
 			for (size_t ly; ly < h; ly++) {
@@ -93,7 +139,7 @@ private:
 					continue;
 				for (size_t lx; lx < w; lx++)
 					if (bitmap.buffer[(lx / 8) + ly * bitmap.pitch] & (1 << (7 - (lx % 8))))
-						image.data[lx + x + (ly + y) * image.width] = color;
+						image.data[lx + x + (ly + y) * image.width] = fg;
 			}
 		} else {
 			throw new Exception("Unsupported bitmap format: " ~ to!string(cast(FTPixelMode)bitmap.pixel_mode));
