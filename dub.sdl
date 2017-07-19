@@ -1,5 +1,5 @@
 name "de"
-description "A editor written in D"
+description "An editor written in D"
 authors "Dan Printzell"
 copyright "Copyright © 2016, Dan Printzell"
 license "MPLv2"

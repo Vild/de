@@ -1,2 +1,2 @@
 # de
-A editor written in D
+An editor written in D
