@@ -115,10 +115,9 @@ pipeline {
 						} catch (Exception e) { }
 					}
 
-					zip zipFile: 'assets.zip', archive: true, glob: 'assets/*'
 					unstash 'dmd'
 					unstash 'ldc'
-					archiveArtifacts artifacts: 'de-dmd,de-ldc,assets.zip', fingerprint: true
+					archiveArtifacts artifacts: 'de-dmd,de-ldc', fingerprint: true
 				}
 			}
 		}
