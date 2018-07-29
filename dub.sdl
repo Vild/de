@@ -4,5 +4,7 @@ authors "Dan Printzell"
 copyright "Copyright © 2018, Dan Printzell"
 license "MPLv2"
 
+targetPath "bin"
+
 # dependency "arsd-official:terminal" version="~>2.1.1"
 dependency "linebreak" version="~>1.1.0"

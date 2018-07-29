@@ -13,12 +13,17 @@
 
 # Executables
 *.exe
+bin/
 
 # DUB
 .dub
 docs.json
 __dummy.html
 docs/
+dub.selections.json
 
 # Code coverage
 *.lst
+
+# GDB
+.gdb_history

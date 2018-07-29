@@ -237,8 +237,20 @@ private static:
 }
 
 struct Line {
+	string _text;
 	string text;
-	alias text this;
+
+	this(string text_) {
+		import std.regex : replaceAll, regex;
+
+		if (text_.length)
+			_text = text_;
+		text = _text.replaceAll(regex(r"\t"), "  ");
+	}
+
+	@property size_t length() {
+		return text.length;
+	}
 }
 
 struct Editor {
@@ -258,7 +270,8 @@ public:
 			int row = y + _offsetY;
 			Terminal.moveTo(0, y);
 			Terminal.clearLine();
-			Terminal.write(format("\x1b[90m%3d| \x1b[0m", row));
+			if (_showLineNumber)
+				Terminal.write(format("\x1b[90m%*d| \x1b[0m", _lineNumberWidth - 2, row));
 
 			if (row >= _lines.length && row > 0) {
 				Terminal.write("\x1b[90m~\x1b[0m");
@@ -279,10 +292,11 @@ public:
 				import std.algorithm : min;
 
 				Line* l = &_lines[row];
-				int len = min(l.text.length - _offsetX, Terminal.size[0] - _lineNumberWidth);
+
+				long len = min(cast(long)l.length - _offsetX, Terminal.size[0] - _lineNumberWidth);
 
 				if (len > 0)
-					Terminal.write(l.text[_offsetX .. len]);
+					Terminal.write(l.text[_offsetX .. _offsetX + len]);
 			}
 		}
 	}
@@ -292,6 +306,18 @@ public:
 
 		Terminal.cursorVisibility = false;
 
+		if (_showLineNumber) {
+			if (_lines.length) {
+				import std.math : log10;
+				import std.algorithm : min;
+
+				_lineNumberWidth = cast(int)log10(min(_offsetY + Terminal.size[1] - 1, _lines.length - 1)) + 1;
+			} else
+				_lineNumberWidth = 1;
+
+			_lineNumberWidth += 2;
+		} else
+			_lineNumberWidth = 0;
 		drawRows();
 		Terminal.moveTo(_cursorX + _lineNumberWidth - _offsetX, (_cursorY - _offsetY));
 		Terminal.cursorVisibility = true;
@@ -308,50 +334,59 @@ public:
 		case CTRL_KEY('q'):
 			return false;
 		case CTRL_KEY('w'):
-			Terminal.die("derp");
+			_showLineNumber = !_showLineNumber;
 			break;
 
 		case Key.arrowUp:
-			_cursorY--;
+			if (_cursorY > 0)
+				_cursorY--;
 			break;
 		case Key.arrowDown:
-			_cursorY++;
+			if (_cursorY < _lines.length - 1)
+				_cursorY++;
 			break;
 		case Key.arrowLeft:
-			_cursorX--;
+			if (_cursorX > 0)
+				_cursorX--;
+			else if (_cursorY > 0) {
+				_cursorY--;
+				_cursorX = cast(int)_lines[_cursorY].length;
+			}
 			break;
 		case Key.arrowRight:
-			_cursorX++;
+			if (_cursorX < _lines[_cursorY].length)
+				_cursorX++;
+			else if (_cursorY < _lines.length - 1) {
+				_cursorY++;
+				_cursorX = 0;
+			}
 			break;
 
 		case Key.home:
 			_cursorX = 0;
 			break;
 		case Key.end:
-			_cursorX = int.max;
+			_cursorX = cast(int)_lines[_cursorY].length;
 			break;
 		case Key.pageUp:
-			_cursorY -= Terminal.size[1];
+			_cursorY = max(0, _cursorY - Terminal.size[1]);
 			break;
 		case Key.pageDown:
-			_cursorY += Terminal.size[1];
+			_cursorY = min(_lines.length - 1, _cursorY + Terminal.size[1]);
 			break;
 		default:
 			break;
 		}
-
-		_cursorY = _cursorY.max(0).min(_lines.length - 1);
-		_cursorX = _cursorX.max(0).min(_lines[_cursorY].length);
 
 		if (_cursorY < _offsetY)
 			_offsetY = _cursorY;
 		if (_cursorY >= _offsetY + Terminal.size[1])
 			_offsetY = (_cursorY - Terminal.size[1]) + 1;
 
-		/*if (_cursorX < _offsetX)
+		if (_cursorX < _offsetX)
 			_offsetX = _cursorX;
-		if (_cursorX >= Terminal.size[0] + _offsetX)
-			_offsetX = _cursorX - Terminal.size[0] + 1;*/
+		if (_cursorX >= (Terminal.size[0] - _lineNumberWidth) + _offsetX)
+			_offsetX = _cursorX - (Terminal.size[0] - _lineNumberWidth) + 1;
 
 		return true;
 	}
@@ -362,7 +397,7 @@ private:
 	Key _lastKey;
 	Line[] _lines;
 
-	bool _showLineNumber;
+	bool _showLineNumber = true;
 	uint _lineNumberWidth = 5;
 }
 
