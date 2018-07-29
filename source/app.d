@@ -19,7 +19,7 @@ static:
 	enum string version_ = "0.0.1";
 }
 
-enum Key : int {
+enum Key : long {
 	unknown = 0,
 
 	arrowUp = 1000,
@@ -162,7 +162,7 @@ public static:
 		return cast(Key)c;
 	}
 
-	void moveTo(int x = 0, int y = 0) {
+	void moveTo(long x = 0, long y = 0) {
 		write(format("\x1b[%d;%dH", y + 1, x + 1));
 	}
 
@@ -178,13 +178,13 @@ public static:
 		write("\x1b[?25" ~ (v ? "h" : "l"));
 	}
 
-	@property int[2] size() {
+	@property long[2] size() {
 		return _size;
 	}
 
 private static:
 	termios _origTermios;
-	int[2] _size = [80, 24];
+	long[2] _size = [80, 24];
 	string _buffer;
 
 	void _enableRawMode() {
@@ -266,8 +266,8 @@ public:
 	}
 
 	void drawRows() {
-		foreach (int y; 0 .. Terminal.size[1]) {
-			int row = y + _offsetY;
+		foreach (long y; 0 .. Terminal.size[1]) {
+			long row = y + _offsetY;
 			Terminal.moveTo(0, y);
 			Terminal.clearLine();
 			if (_showLineNumber)
@@ -281,7 +281,7 @@ public:
 
 					string welcome = format("D editor -- version %s LastKey: %s (%c)", Build.version_, _lastKey, cast(char)_lastKey);
 					size_t welcomeLength = min(welcome.length, Terminal.size[0]);
-					int padding = cast(int)(Terminal.size[0] - welcomeLength) / 2;
+					long padding = cast(long)(Terminal.size[0] - welcomeLength) / 2;
 
 					Terminal.moveTo(padding, y);
 					Terminal.write("\x1b[1m");
@@ -311,7 +311,7 @@ public:
 				import std.math : log10;
 				import std.algorithm : min;
 
-				_lineNumberWidth = cast(int)log10(min(_offsetY + Terminal.size[1] - 1, _lines.length - 1)) + 1;
+				_lineNumberWidth = cast(long)log10(min(_offsetY + Terminal.size[1] - 1, _lines.length - 1)) + 1;
 			} else
 				_lineNumberWidth = 1;
 
@@ -346,11 +346,13 @@ public:
 				_cursorY++;
 			break;
 		case Key.arrowLeft:
-			if (_cursorX > 0)
+			if (_cursorX > _lines[_cursorY].length)
+				_cursorX = _lines[_cursorY].length;
+			else if (_cursorX > 0)
 				_cursorX--;
 			else if (_cursorY > 0) {
 				_cursorY--;
-				_cursorX = cast(int)_lines[_cursorY].length;
+				_cursorX = cast(long)_lines[_cursorY].length;
 			}
 			break;
 		case Key.arrowRight:
@@ -366,7 +368,7 @@ public:
 			_cursorX = 0;
 			break;
 		case Key.end:
-			_cursorX = cast(int)_lines[_cursorY].length;
+			_cursorX = cast(long)_lines[_cursorY].length;
 			break;
 		case Key.pageUp:
 			_cursorY = max(0, _cursorY - Terminal.size[1]);
@@ -392,13 +394,13 @@ public:
 	}
 
 private:
-	int _cursorX, _cursorY;
-	int _offsetX, _offsetY;
+	long _cursorX, _cursorY;
+	long _offsetX, _offsetY;
 	Key _lastKey;
 	Line[] _lines;
 
 	bool _showLineNumber = true;
-	uint _lineNumberWidth = 5;
+	ulong _lineNumberWidth = 5;
 }
 
 Editor* editor;
