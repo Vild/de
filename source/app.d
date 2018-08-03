@@ -19,6 +19,11 @@ static:
 	enum string version_ = "0.0.1";
 }
 
+static struct Config {
+static:
+	size_t tabSize = 2;
+}
+
 enum Key : long {
 	unknown = 0,
 
@@ -58,7 +63,7 @@ public static:
 			return;
 		called = true;
 		_disableRawMode();
-		printf("\x1b[1mThank you for using DE - Powered by https://dlang.org/\n\x1b[0m");
+		printf("\x1b[1mThank you for using DE - Powered by https://dlang.org/\x1b[0m\n");
 	}
 
 	void die(string s, string file = __FILE__, size_t line = __LINE__) {
@@ -215,20 +220,20 @@ private static:
 		Terminal.flush();
 		winsize ws;
 		if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1 || !ws.ws_col) {
-			/*char[32] buf;
+			char[32] buf;
 			size_t i;
 			Terminal.write("\x1b[999C\x1b[999B");
 			Terminal.write("\x1b[6n");
 			Terminal.flush();
 			while (i < buf.length) {
-				buf[i] = Terminal.read();
+				buf[i] = cast(char)Terminal.read();
 				if (buf[i] == 'R')
 					break;
 				i++;
 			}
 
-			if (buf[0 .. 2] != "\x1b[" || !sscanf(&buf[2], "%d;%d", &_size[1], &_size[0]))*/
-			Terminal.die("_refreshSize");
+			if (buf[0 .. 2] != "\x1b[" || !sscanf(&buf[2], "%d;%d", &_size[1], &_size[0]))
+				Terminal.die("_refreshSize");
 		} else {
 			_size[0] = ws.ws_col;
 			_size[1] = ws.ws_row;
@@ -236,20 +241,254 @@ private static:
 	}
 }
 
+enum Color {
+	defaultColor = 39,
+
+	black = 30,
+	red = 31,
+	green = 32,
+	yellow = 33,
+	blue = 34,
+	magenta = 35,
+	cyan = 36,
+	white = 37,
+
+	brightBlack = 90,
+	brightRed = 91,
+	brightGreen = 92,
+	brightYellow = 93,
+	brightBlue = 94,
+	brightMagenta = 95,
+	brightCyan = 96,
+	brightWhite = 97,
+}
+
+struct TextStyle {
+	bool bright; // 1
+	bool dim; // 2
+	bool italic; // 3
+	bool underscore; // 4
+	bool blink; // 5
+	bool reverse; // 7
+	bool crossedOut; // 9
+	bool overscore; // 53
+
+	Color fg = Color.defaultColor;
+	Color bg = Color.defaultColor; // + 10
+
+	string toString() {
+		import std.array : appender;
+		import std.conv : to;
+
+		auto str = appender!string();
+		str.reserve = 3 + 8 * 2 + (3 + 1) * 2;
+
+		str ~= "\x1b[";
+		if (bright)
+			str ~= "1;";
+		if (dim)
+			str ~= "2;";
+		if (italic)
+			str ~= "3;";
+		if (underscore)
+			str ~= "4;";
+		if (blink)
+			str ~= "5;";
+		if (reverse)
+			str ~= "7;";
+		if (crossedOut)
+			str ~= "9;";
+		if (overscore)
+			str ~= "53;";
+
+		str.put((cast(int)fg).to!string);
+		str ~= ";";
+		str.put((cast(int)bg + 10).to!string);
+		str ~= "m";
+		return str.data;
+	}
+}
+
 struct Line {
-	string _text;
+	struct Part {
+		TextStyle style;
+		string str;
+
+		@property size_t length() {
+			return str.length;
+		}
+
+		size_t opDollar(size_t pos : 0)() {
+			return length;
+		}
+
+		string opSlice(size_t x, size_t y) {
+			assert(x < y, format!"%d < %d"(x, y));
+			assert(x <= str.length, format!"(y=%d), x=%d is outside of string(len: %d)"(y, x, str.length));
+			assert(y <= str.length, format!"(x=%d), y=%d is outside of string(len: %d)"(x, y, str.length));
+			return style.toString() ~ str[x .. y] ~ "\x1b[0m";
+		}
+
+		string toString() {
+			return opSlice(0, length);
+		}
+	}
+
 	string text;
+	Part[] textParts;
 
-	this(string text_) {
-		import std.regex : replaceAll, regex;
-
-		if (text_.length)
-			_text = text_;
-		text = _text.replaceAll(regex(r"\t"), "  ");
+	string toString() {
+		return opSlice(0, length);
 	}
 
 	@property size_t length() {
-		return text.length;
+		import std.algorithm : map, sum;
+
+		return textParts.map!"a.length".sum;
+	}
+
+	size_t opDollar(size_t pos : 0)() {
+		return length;
+	}
+
+	string opSlice(size_t x, size_t y) {
+		import std.range;
+		import std.array : appender;
+
+		auto output = appender!string;
+		Part[] parts = textParts;
+
+		if (parts.empty || x == y)
+			return "";
+
+		// Step 1. discard parts until x is a valid location in part
+		while (!parts.empty && x && x < y && x > parts[0].length) {
+			x -= parts[0].length;
+			y -= parts[0].length;
+			parts.popFront;
+		}
+
+		if (parts.empty)
+			return "";
+
+		// Step 2 Get data so X becomes 0
+		if (!parts.empty && x) {
+			Part part = parts.front;
+			parts.popFront;
+
+			size_t sizeWant = y - x;
+			if (part.length - x < sizeWant) // Won't find all the requested data in this part
+				sizeWant = part.length - x;
+
+			output ~= part[x .. sizeWant + x];
+			x = 0;
+			y -= sizeWant;
+		}
+
+		if (parts.empty)
+			return output.data;
+
+		// Step 3 Continue to get data until y = 0
+		while (!parts.empty && y) {
+			Part part = parts.front;
+			parts.popFront;
+
+			size_t sizeWant = y;
+			if (part.length < sizeWant) // Won't find all the requested data in this part
+				sizeWant = part.length;
+
+			output ~= part[x .. sizeWant];
+
+			y -= sizeWant;
+		}
+
+		return output.data;
+	}
+
+	bool haveRefreshed; //TODO:
+	void refresh() {
+		haveRefreshed = true;
+		import std.string : indexOf;
+		import std.algorithm : filter, sum;
+
+		textParts.length = 0;
+		size_t idx = 0;
+		bool wasSpace;
+		bool wasChar;
+		foreach (ch; text) {
+			Part part;
+			if (ch == '\t') {
+				import std.array : insertInPlace;
+				import std.range : repeat;
+
+				const size_t numberOfSpaces = (Config.tabSize) - (idx % Config.tabSize);
+				part.str = format!"↦%*s"(numberOfSpaces - 1, "");
+				part.style.fg = Color.brightBlack;
+
+				wasSpace = false;
+				wasChar = false;
+				idx += numberOfSpaces;
+			} else if (ch == ' ' && (!wasChar || (wasChar && textParts[$ - 1].str.length > 1
+					&& textParts[$ - 1].str[$ - 2] == '/' && (textParts[$ - 1].str[$ - 1] == '/' || textParts[$ - 1].str[$ - 1] == '*')))) {
+				if (wasSpace) {
+					textParts[$ - 1].str ~= "⬩";
+					idx++;
+					continue;
+				} else {
+					part.str = "⬩";
+					part.style.fg = Color.brightBlack;
+
+					wasSpace = true;
+					wasChar = false;
+
+					idx++;
+				}
+			} else {
+				if (wasChar) {
+					textParts[$ - 1].str ~= format!"%c"(ch);
+					idx++;
+					continue;
+				} else {
+					part.str = format!"%c"(ch);
+					wasSpace = false;
+					wasChar = true;
+
+					idx++;
+				}
+			}
+			textParts ~= part;
+		}
+	}
+
+	long indexToColumn(long dataIdx) {
+		import std.algorithm : min;
+
+		size_t idx = 0;
+		foreach (ch; text[0 .. dataIdx.min(text.length)]) {
+			if (ch == '\t')
+				idx += (Config.tabSize - 1) - (idx % Config.tabSize);
+			idx++;
+		}
+		return idx;
+	}
+
+	long columnToIndex(long column) {
+		import std.algorithm : min;
+
+		if (!column)
+			return 0;
+
+		size_t idx = 0;
+		foreach (i, ch; text) {
+			if (ch == '\t')
+				idx += (Config.tabSize - 1) - (idx % Config.tabSize);
+			idx++;
+			if (column == idx)
+				return i + 1;
+			else if (column < idx)
+				return i;
+		}
+		return column;
 	}
 }
 
@@ -259,7 +498,13 @@ public:
 		import std.file : readText;
 		import std.string : splitLines;
 		import std.array : array;
-		import std.algorithm : map;
+		import std.algorithm : map, each;
+
+		Terminal.moveTo(0, 0);
+		Terminal.write("Loading ");
+		Terminal.write(file);
+		Terminal.write("...");
+		Terminal.flush();
 
 		string text = readText(file);
 		_lines = text.splitLines.map!(x => Line(x)).array;
@@ -267,8 +512,9 @@ public:
 
 	void drawRows() {
 		foreach (long y; 0 .. Terminal.size[1]) {
-			long row = y + _offsetY;
+			long row = y + _scrollY;
 			Terminal.moveTo(0, y);
+			Terminal.write("\x1b[49m");
 			Terminal.clearLine();
 			if (_showLineNumber)
 				Terminal.write(format("\x1b[90m%*d| \x1b[0m", _lineNumberWidth - 2, row));
@@ -293,10 +539,9 @@ public:
 
 				Line* l = &_lines[row];
 
-				long len = min(cast(long)l.length - _offsetX, Terminal.size[0] - _lineNumberWidth);
-
-				if (len > 0)
-					Terminal.write(l.text[_offsetX .. _offsetX + len]);
+				if (!l.haveRefreshed)
+					l.refresh();
+				Terminal.write((*l)[_scrollX .. _scrollX + Terminal.size[0] - _lineNumberWidth]);
 			}
 		}
 	}
@@ -311,7 +556,7 @@ public:
 				import std.math : log10;
 				import std.algorithm : min;
 
-				_lineNumberWidth = cast(long)log10(min(_offsetY + Terminal.size[1] - 1, _lines.length - 1)) + 1;
+				_lineNumberWidth = cast(long)log10(min(_scrollY + Terminal.size[1] - 1, _lines.length - 1)) + 1;
 			} else
 				_lineNumberWidth = 1;
 
@@ -319,7 +564,16 @@ public:
 		} else
 			_lineNumberWidth = 0;
 		drawRows();
-		Terminal.moveTo(_cursorX + _lineNumberWidth - _offsetX, (_cursorY - _offsetY));
+
+		Line* l = &_lines[_row];
+
+		// This needs to be done render the cursor at the logical location
+		// This makes sure that the cursor is not rendered in the middle of a tab, but rather it is rendered at the start
+		// of that tab character.
+		const long renderedCursorX = l.indexToColumn(_dataIdx);
+
+		Terminal.moveTo(renderedCursorX + _lineNumberWidth - _scrollX, (_row - _scrollY));
+
 		Terminal.cursorVisibility = true;
 		Terminal.flush();
 	}
@@ -338,64 +592,79 @@ public:
 			break;
 
 		case Key.arrowUp:
-			if (_cursorY > 0)
-				_cursorY--;
+			if (_row > 0) {
+				_row--;
+				_dataIdx = _lines[_row].columnToIndex(_column);
+			}
 			break;
 		case Key.arrowDown:
-			if (_cursorY < _lines.length - 1)
-				_cursorY++;
+			if (_row < _lines.length - 1) {
+				_row++;
+				_dataIdx = _lines[_row].columnToIndex(_column);
+			}
 			break;
 		case Key.arrowLeft:
-			if (_cursorX > _lines[_cursorY].length)
-				_cursorX = _lines[_cursorY].length;
-			else if (_cursorX > 0)
-				_cursorX--;
-			else if (_cursorY > 0) {
-				_cursorY--;
-				_cursorX = cast(long)_lines[_cursorY].length;
+			if (_dataIdx > _lines[_row].text.length)
+				_dataIdx = _lines[_row].text.length;
+			else if (_dataIdx > 0)
+				_dataIdx--;
+			else if (_row > 0) {
+				_row--;
+				_dataIdx = cast(long)_lines[_row].text.length;
 			}
+
+			_column = _lines[_row].indexToColumn(_dataIdx);
 			break;
 		case Key.arrowRight:
-			if (_cursorX < _lines[_cursorY].length)
-				_cursorX++;
-			else if (_cursorY < _lines.length - 1) {
-				_cursorY++;
-				_cursorX = 0;
+			if (_dataIdx < _lines[_row].text.length)
+				_dataIdx++;
+			else if (_row < _lines.length - 1) {
+				_row++;
+				_dataIdx = 0;
 			}
+
+			_column = _lines[_row].indexToColumn(_dataIdx);
 			break;
 
 		case Key.home:
-			_cursorX = 0;
+			_dataIdx = 0;
+
+			_column = _lines[_row].indexToColumn(_dataIdx);
 			break;
 		case Key.end:
-			_cursorX = cast(long)_lines[_cursorY].length;
+			_dataIdx = cast(long)_lines[_row].text.length;
+
+			_column = _lines[_row].indexToColumn(_dataIdx);
 			break;
+
+			//TODO: move offset not cursor?
 		case Key.pageUp:
-			_cursorY = max(0, _cursorY - Terminal.size[1]);
+			_row = max(0, _scrollY - Terminal.size[1]);
 			break;
 		case Key.pageDown:
-			_cursorY = min(_lines.length - 1, _cursorY + Terminal.size[1]);
+			_row = min(_lines.length - 1, _scrollY + Terminal.size[1] * 2 - 1);
 			break;
 		default:
 			break;
 		}
 
-		if (_cursorY < _offsetY)
-			_offsetY = _cursorY;
-		if (_cursorY >= _offsetY + Terminal.size[1])
-			_offsetY = (_cursorY - Terminal.size[1]) + 1;
+		if (_row < _scrollY)
+			_scrollY = _row;
+		else if (_row >= _scrollY + Terminal.size[1])
+			_scrollY = (_row - Terminal.size[1]) + 1;
 
-		if (_cursorX < _offsetX)
-			_offsetX = _cursorX;
-		if (_cursorX >= (Terminal.size[0] - _lineNumberWidth) + _offsetX)
-			_offsetX = _cursorX - (Terminal.size[0] - _lineNumberWidth) + 1;
+		if (_column < _scrollX)
+			_scrollX = _column;
+		else if (_column >= (Terminal.size[0] - _lineNumberWidth) + _scrollX)
+			_scrollX = _column - (Terminal.size[0] - _lineNumberWidth) + 1;
 
 		return true;
 	}
 
 private:
-	long _cursorX, _cursorY;
-	long _offsetX, _offsetY;
+	long _dataIdx; // data location
+	long _column, _row; // _column will be the screen location
+	long _scrollX, _scrollY;
 	Key _lastKey;
 	Line[] _lines;
 
