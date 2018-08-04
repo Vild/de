@@ -8,6 +8,8 @@ import core.stdc.stdio;
 import core.stdc.stdlib;
 import core.stdc.errno;
 
+import core.time;
+
 import std.format : format;
 
 import linebreak;
@@ -500,6 +502,8 @@ public:
 		import std.array : array;
 		import std.algorithm : map, each;
 
+		_file = file;
+
 		Terminal.moveTo(0, 0);
 		Terminal.write("Loading ");
 		Terminal.write(file);
@@ -508,24 +512,27 @@ public:
 
 		string text = readText(file);
 		_lines = text.splitLines.map!(x => Line(x)).array;
+		_setStatus("Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command |");
 	}
 
 	void drawRows() {
-		foreach (long y; 0 .. Terminal.size[1]) {
+		auto screenHeight = Terminal.size[1] - _statusHeight;
+
+		foreach (long y; 0 .. screenHeight) {
 			long row = y + _scrollY;
 			Terminal.moveTo(0, y);
 			Terminal.write("\x1b[49m");
 			Terminal.clearLine();
 			if (_showLineNumber)
-				Terminal.write(format("\x1b[90m%*d| \x1b[0m", _lineNumberWidth - 2, row));
+				Terminal.write(format("\x1b[90m%*d| \x1b[0m", _lineNumberWidth - 2, row + 1));
 
-			if (row >= _lines.length && row > 0) {
+			if (row < 0 || row >= _lines.length) {
 				Terminal.write("\x1b[90m~\x1b[0m");
 
-				if (!_lines.length && row == Terminal.size[1] / 3) {
+				if (!_lines.length && row == screenHeight / 3) {
 					import std.algorithm : min;
 
-					string welcome = format("D editor -- version %s LastKey: %s (%c)", Build.version_, _lastKey, cast(char)_lastKey);
+					string welcome = format("D editor -- version %s", Build.version_, _lastKey, cast(char)_lastKey);
 					size_t welcomeLength = min(welcome.length, Terminal.size[0]);
 					long padding = cast(long)(Terminal.size[0] - welcomeLength) / 2;
 
@@ -548,22 +555,46 @@ public:
 
 	void refreshScreen() {
 		import std.string : toStringz;
+		import std.range : repeat;
+		import std.array : array;
+		import std.path : baseName;
 
 		Terminal.cursorVisibility = false;
+
+		_statusHeight = (_showCommandInput || MonoTime.currTime < _statusDecayAt) ? 2 : 1;
 
 		if (_showLineNumber) {
 			if (_lines.length) {
 				import std.math : log10;
 				import std.algorithm : min;
 
-				_lineNumberWidth = cast(long)log10(min(_scrollY + Terminal.size[1] - 1, _lines.length - 1)) + 1;
+				_lineNumberWidth = cast(long)log10(min(_scrollY + Terminal.size[1] - _statusHeight, _lines.length)) + 1;
 			} else
 				_lineNumberWidth = 1;
 
 			_lineNumberWidth += 2;
 		} else
 			_lineNumberWidth = 0;
+
 		drawRows();
+
+		Terminal.moveTo(0, Terminal.size[1] - _statusHeight);
+		Terminal.clearLine();
+
+		string str = format!"%-*s"(Terminal.size[0], format!"%s - %d lines %d/%d"(_file.baseName, _lines.length, _row + 1, _lines.length));
+		Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.reverse = true; return t; }(), str)]).toString);
+
+		if (MonoTime.currTime < _statusDecayAt) {
+			Terminal.moveTo(0, Terminal.size[1] - _statusHeight + 1);
+			Terminal.clearLine();
+			Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.bright = true; t.fg = Color.brightCyan; return t; }(), _statusMessage)])
+					.toString);
+		} else if (_showCommandInput) {
+			Terminal.moveTo(0, Terminal.size[1] - _statusHeight + 1);
+			Terminal.clearLine();
+			Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.bright = true; t.fg = Color.brightCyan; return t; }(), "<INPUT HERE>")])
+					.toString);
+		}
 
 		Line* l = &_lines[_row];
 
@@ -581,6 +612,8 @@ public:
 	bool processKeypress() {
 		import std.algorithm : min, max;
 
+		long screenHeight = Terminal.size[1] - _statusHeight;
+
 		Key k = Terminal.read();
 		if (k != Key.unknown)
 			_lastKey = k;
@@ -589,6 +622,9 @@ public:
 			return false;
 		case CTRL_KEY('w'):
 			_showLineNumber = !_showLineNumber;
+			break;
+		case CTRL_KEY('e'):
+			_showCommandInput = !_showCommandInput;
 			break;
 
 		case Key.arrowUp:
@@ -639,10 +675,10 @@ public:
 
 			//TODO: move offset not cursor?
 		case Key.pageUp:
-			_row = max(0, _scrollY - Terminal.size[1]);
+			_row = max(0L, _scrollY - screenHeight);
 			break;
 		case Key.pageDown:
-			_row = min(_lines.length - 1, _scrollY + Terminal.size[1] * 2 - 1);
+			_row = min(_lines.length - 1, _scrollY + screenHeight * 2 - 1);
 			break;
 		default:
 			break;
@@ -650,8 +686,8 @@ public:
 
 		if (_row < _scrollY)
 			_scrollY = _row;
-		else if (_row >= _scrollY + Terminal.size[1])
-			_scrollY = (_row - Terminal.size[1]) + 1;
+		else if (_row >= _scrollY + screenHeight)
+			_scrollY = (_row - screenHeight) + 1;
 
 		if (_column < _scrollX)
 			_scrollX = _column;
@@ -662,6 +698,7 @@ public:
 	}
 
 private:
+	string _file;
 	long _dataIdx; // data location
 	long _column, _row; // _column will be the screen location
 	long _scrollX, _scrollY;
@@ -670,6 +707,17 @@ private:
 
 	bool _showLineNumber = true;
 	ulong _lineNumberWidth = 5;
+
+	bool _showCommandInput = false;
+	ulong _statusHeight = 1;
+
+	string _statusMessage;
+	MonoTime _statusDecayAt;
+
+	void _setStatus(string status) {
+		_statusMessage = status;
+		_statusDecayAt = MonoTime.currTime + 5.seconds;
+	}
 }
 
 Editor* editor;
