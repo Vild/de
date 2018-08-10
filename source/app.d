@@ -512,7 +512,14 @@ public:
 
 		string text = readText(file);
 		_lines = text.splitLines.map!(x => Line(x)).array;
-		_setStatus("Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command |");
+
+		Line status;
+		status.textParts.length = 1;
+		status.textParts[0].str = "Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Random status message |";
+		status.textParts[0].style.bright = true;
+		status.textParts[0].style.fg = Color.brightCyan;
+
+		_addStatus(status);
 	}
 
 	void drawRows() {
@@ -561,7 +568,16 @@ public:
 
 		Terminal.cursorVisibility = false;
 
-		_statusHeight = (_showCommandInput || MonoTime.currTime < _statusDecayAt) ? 2 : 1;
+		if (_statusMessages.length) {
+			import std.range : popFront;
+
+			if (MonoTime.currTime > _statusDecayAt) {
+				_statusMessages.popFront;
+				_statusDecayAt = MonoTime.currTime + _statusDelay;
+			}
+		}
+
+		_statusHeight = (_showCommandInput || _statusMessages.length) ? 2 : 1;
 
 		if (_showLineNumber) {
 			if (_lines.length) {
@@ -584,16 +600,17 @@ public:
 		string str = format!"%-*s"(Terminal.size[0], format!"%s - %d lines %d/%d"(_file.baseName, _lines.length, _row + 1, _lines.length));
 		Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.reverse = true; return t; }(), str)]).toString);
 
-		if (MonoTime.currTime < _statusDecayAt) {
+		if (_showCommandInput) {
 			Terminal.moveTo(0, Terminal.size[1] - _statusHeight + 1);
 			Terminal.clearLine();
-			Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.bright = true; t.fg = Color.brightCyan; return t; }(), _statusMessage)])
+			Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.bright = true; t.fg = Color.yellow; return t; }(), "<INPUT HERE>")])
 					.toString);
-		} else if (_showCommandInput) {
+		} else if (_statusMessages.length) {
+			import std.range : front;
+
 			Terminal.moveTo(0, Terminal.size[1] - _statusHeight + 1);
 			Terminal.clearLine();
-			Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.bright = true; t.fg = Color.brightCyan; return t; }(), "<INPUT HERE>")])
-					.toString);
+			Terminal.write(_statusMessages.front.toString);
 		}
 
 		Line* l = &_lines[_row];
@@ -625,6 +642,22 @@ public:
 			break;
 		case CTRL_KEY('e'):
 			_showCommandInput = !_showCommandInput;
+			break;
+
+		case CTRL_KEY('r'): {
+				import std.traits : EnumMembers;
+
+				enum colors = [EnumMembers!Color];
+
+				Line status;
+				status.textParts.length = 1;
+				status.textParts[0].str = format("[%s] status message", MonoTime.currTime);
+				status.textParts[0].style.overscore = true;
+				status.textParts[0].style.underscore = true;
+				status.textParts[0].style.italic = true;
+				status.textParts[0].style.fg = colors[rand() % colors.length];
+				_addStatus(status);
+			}
 			break;
 
 		case Key.arrowUp:
@@ -711,12 +744,14 @@ private:
 	bool _showCommandInput = false;
 	ulong _statusHeight = 1;
 
-	string _statusMessage;
+	Line[] _statusMessages;
 	MonoTime _statusDecayAt;
+	Duration _statusDelay = 1.seconds;
 
-	void _setStatus(string status) {
-		_statusMessage = status;
-		_statusDecayAt = MonoTime.currTime + 5.seconds;
+	void _addStatus(Line status) {
+		if (!_statusMessages.length)
+			_statusDecayAt = MonoTime.currTime + _statusDelay;
+		_statusMessages ~= status;
 	}
 }
 
