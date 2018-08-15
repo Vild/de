@@ -3,6 +3,10 @@ import core.sys.posix.termios;
 import core.sys.posix.sys.ioctl;
 import core.sys.posix.signal;
 
+// dfmt off
+		//  	 		derp
+    //	   		derp 2
+// dfmt on
 import core.stdc.ctype;
 import core.stdc.stdio;
 import core.stdc.stdlib;
@@ -24,6 +28,13 @@ static:
 static struct Config {
 static:
 	size_t tabSize = 2;
+
+	wchar tabCharStart = '↦';
+	wchar tabCharStartUnaligned = '↦';
+	wchar tabMiddle = ' ';
+	wchar tabEnd = ' ';
+
+	wchar spaceChar = '⬩';
 }
 
 enum Key : long {
@@ -74,7 +85,7 @@ public static:
 
 		_disableRawMode();
 
-		perror(format("[%s:%3d] %s", file, line, s).toStringz);
+		perror(format!"[%s:%3d] %s"(file, line, s).toStringz);
 		exit(errno ? errno : -1);
 	}
 
@@ -170,7 +181,7 @@ public static:
 	}
 
 	void moveTo(long x = 0, long y = 0) {
-		write(format("\x1b[%d;%dH", y + 1, x + 1));
+		write(format!"\x1b[%d;%dH"(y + 1, x + 1));
 	}
 
 	void clear() {
@@ -185,12 +196,21 @@ public static:
 		write("\x1b[?25" ~ (v ? "h" : "l"));
 	}
 
+	@property bool gotResized() {
+		if (_gotResized) {
+			_gotResized = false;
+			return true;
+		} else
+			return false;
+	}
+
 	@property long[2] size() {
 		return _size;
 	}
 
 private static:
 	termios _origTermios;
+	bool _gotResized;
 	long[2] _size = [80, 24];
 	string _buffer;
 
@@ -240,6 +260,7 @@ private static:
 			_size[0] = ws.ws_col;
 			_size[1] = ws.ws_row;
 		}
+		_gotResized = true;
 	}
 }
 
@@ -412,53 +433,114 @@ struct Line {
 		haveRefreshed = true;
 		import std.string : indexOf;
 		import std.algorithm : filter, sum;
+		import std.range : popFront, front, empty, repeat;
+		import std.utf : toUTF8, codeLength;
 
 		textParts.length = 0;
 		size_t idx = 0;
 		bool wasSpace;
 		bool wasChar;
-		foreach (ch; text) {
-			Part part;
-			if (ch == '\t') {
+
+		auto str = text;
+
+		alias isTab = (ch) => ch == '\t';
+		alias isSpace = (ch) => ch == ' ' && !wasChar;
+		/*alias isSpace = (ch) => ch == ' ' && (!wasChar || (wasChar && textParts[$ - 1].str.length > 1
+					&& textParts[$ - 1].str[$ - 2] == '/' && (textParts[$ - 1].str[$ - 1] == '/' || textParts[$ - 1].str[$ - 1] == '*')));*/
+		while (!str.empty) {
+			auto ch = str.front;
+			if (isTab(ch)) {
 				import std.array : insertInPlace;
 				import std.range : repeat;
 
-				const size_t numberOfSpaces = (Config.tabSize) - (idx % Config.tabSize);
-				part.str = format!"↦%*s"(numberOfSpaces - 1, "");
+				if (wasSpace)
+					textParts[$ - 1].style.bg = Color.yellow;
+
+				Part part;
 				part.style.fg = Color.brightBlack;
+				part.style.dim = true;
+
+				size_t tabCount;
+
+				do {
+					tabCount++;
+
+					str.popFront;
+					if (str.empty)
+						break;
+					ch = str.front;
+				}
+				while (isTab(ch));
+
+				const size_t numberOfSpaces = (Config.tabSize) - (idx % Config.tabSize) + (Config.tabSize * (tabCount - 1));
+				wchar[] buf = new wchar[numberOfSpaces];
+				scope (exit)
+					buf.destroy;
+				foreach (i, ref c; buf)
+					if ((idx + i - 1) % Config.tabSize)
+						c = Config.tabCharStart;
+					else if (!i)
+						c = Config.tabCharStartUnaligned;
+					else if ((idx + i - 2) % Config.tabSize)
+						c = Config.tabEnd;
+					else
+						c = Config.tabMiddle;
+				idx += numberOfSpaces;
+				part.str = buf.toUTF8;
 
 				wasSpace = false;
 				wasChar = false;
-				idx += numberOfSpaces;
-			} else if (ch == ' ' && (!wasChar || (wasChar && textParts[$ - 1].str.length > 1
-					&& textParts[$ - 1].str[$ - 2] == '/' && (textParts[$ - 1].str[$ - 1] == '/' || textParts[$ - 1].str[$ - 1] == '*')))) {
-				if (wasSpace) {
-					textParts[$ - 1].str ~= "⬩";
-					idx++;
-					continue;
-				} else {
-					part.str = "⬩";
-					part.style.fg = Color.brightBlack;
 
-					wasSpace = true;
-					wasChar = false;
+				textParts ~= part;
+			} else if (isSpace(ch)) {
+				Part part;
+				part.style.fg = Color.brightBlack;
+				part.style.dim = true;
 
+				size_t spaceCount;
+
+				do {
+					spaceCount++;
 					idx++;
+
+					str.popFront;
+					if (str.empty)
+						break;
+					ch = str.front;
 				}
+				while (isSpace(ch));
+
+				part.str = format!"%s"(repeat(Config.spaceChar, spaceCount));
+
+				wasSpace = true;
+				wasChar = false;
+
+				textParts ~= part;
 			} else {
-				if (wasChar) {
-					textParts[$ - 1].str ~= format!"%c"(ch);
-					idx++;
-					continue;
-				} else {
-					part.str = format!"%c"(ch);
-					wasSpace = false;
-					wasChar = true;
+				Part part;
 
+				size_t charCount;
+				string textStart = str;
+
+				do {
+					charCount += str.front.codeLength!char;
 					idx++;
+
+					str.popFront;
+					if (str.empty)
+						break;
+					ch = str.front;
 				}
+				while (!isTab(ch) && !isSpace(ch));
+
+				part.str = textStart[0 .. charCount];
+
+				wasSpace = false;
+				wasChar = true;
+
+				textParts ~= part;
+
 			}
-			textParts ~= part;
 		}
 	}
 
@@ -500,7 +582,8 @@ public:
 		import std.file : readText;
 		import std.string : splitLines;
 		import std.array : array;
-		import std.algorithm : map, each;
+		import std.algorithm : map, each, copy;
+		import core.memory : GC;
 
 		_file = file;
 
@@ -511,27 +594,71 @@ public:
 		Terminal.flush();
 
 		string text = readText(file);
-		_lines = text.splitLines.map!(x => Line(x)).array;
+
+		auto lines = text.splitLines;
+
+		size_t idx;
+
+		_lines.length = lines.length;
+
+		lines.map!((x) {
+			Terminal.moveTo(0, 1);
+			Terminal.write(format!"Constructing %d/%d..."(++idx, lines.length));
+			Terminal.flush();
+			return x;
+		})
+			.map!(x => Line(x))
+			.copy(_lines);
+
+		Terminal.moveTo(0, 1);
+		Terminal.write(format!"Constructing %d/%d... [\x1b[32mDONE\x1b[0m]"(idx, lines.length));
+		Terminal.flush();
+
+		GC.disable;
+
+		scope (exit) {
+			GC.enable();
+			GC.collect();
+		}
+
+		idx = 0;
+		_lines.each!((ref x) {
+			Terminal.moveTo(0, 2);
+			Terminal.write(format!"Rendering %d/%d..."(++idx, _lines.length));
+			Terminal.flush();
+			x.refresh();
+
+			GC.collect();
+		});
+
+		Terminal.moveTo(0, 2);
+		Terminal.write(format!"Rendering %d/%d... [\x1b[32mDONE\x1b[0m]"(idx, lines.length));
+		Terminal.flush();
 
 		Line status;
 		status.textParts.length = 1;
-		status.textParts[0].str = "Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Random status message |";
+		status.textParts[0].str
+			= "Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Random status message |";
 		status.textParts[0].style.bright = true;
 		status.textParts[0].style.fg = Color.brightCyan;
 
-		_addStatus(status);
+		_addStatus(status, 5.seconds);
+
+		drawRows(0, Terminal.size[1]);
 	}
 
-	void drawRows() {
+	void drawRows(size_t startRow, size_t endRow) {
 		auto screenHeight = Terminal.size[1] - _statusHeight;
+		if (endRow > screenHeight)
+			endRow = screenHeight;
 
-		foreach (long y; 0 .. screenHeight) {
+		foreach (long y; startRow .. endRow) {
 			long row = y + _scrollY;
 			Terminal.moveTo(0, y);
 			Terminal.write("\x1b[49m");
 			Terminal.clearLine();
 			if (_showLineNumber)
-				Terminal.write(format("\x1b[90m%*d| \x1b[0m", _lineNumberWidth - 2, row + 1));
+				Terminal.write(format!"\x1b[90m%*d| \x1b[0m"(_lineNumberWidth - 2, row + 1));
 
 			if (row < 0 || row >= _lines.length) {
 				Terminal.write("\x1b[90m~\x1b[0m");
@@ -539,7 +666,7 @@ public:
 				if (!_lines.length && row == screenHeight / 3) {
 					import std.algorithm : min;
 
-					string welcome = format("D editor -- version %s", Build.version_, _lastKey, cast(char)_lastKey);
+					string welcome = format!"D editor -- version %s"(Build.version_);
 					size_t welcomeLength = min(welcome.length, Terminal.size[0]);
 					long padding = cast(long)(Terminal.size[0] - welcomeLength) / 2;
 
@@ -560,24 +687,31 @@ public:
 		}
 	}
 
-	void refreshScreen() {
+	void refreshScreen(size_t startRow, size_t endRow) {
 		import std.string : toStringz;
 		import std.range : repeat;
 		import std.array : array;
 		import std.path : baseName;
 
-		Terminal.cursorVisibility = false;
+		if (Terminal.gotResized) {
+			startRow = 0;
+			endRow = Terminal.size[1];
+		}
 
 		if (_statusMessages.length) {
-			import std.range : popFront;
+			import std.range : popFront, front;
 
 			if (MonoTime.currTime > _statusDecayAt) {
 				_statusMessages.popFront;
-				_statusDecayAt = MonoTime.currTime + _statusDelay;
+				if (_statusMessages.length)
+					_statusDecayAt = MonoTime.currTime + _statusMessages.front.duration;
+
 			}
 		}
 
 		_statusHeight = (_showCommandInput || _statusMessages.length) ? 2 : 1;
+
+		Terminal.cursorVisibility = false;
 
 		if (_showLineNumber) {
 			if (_lines.length) {
@@ -592,7 +726,8 @@ public:
 		} else
 			_lineNumberWidth = 0;
 
-		drawRows();
+		if (startRow < endRow)
+			drawRows(startRow, endRow);
 
 		Terminal.moveTo(0, Terminal.size[1] - _statusHeight);
 		Terminal.clearLine();
@@ -610,7 +745,8 @@ public:
 
 			Terminal.moveTo(0, Terminal.size[1] - _statusHeight + 1);
 			Terminal.clearLine();
-			Terminal.write(_statusMessages.front.toString);
+			string status = _statusMessages.front.line.toString;
+			Terminal.write(status[0 .. (status.length < Terminal.size[0]) ? status.length : Terminal.size[0]]);
 		}
 
 		Line* l = &_lines[_row];
@@ -714,7 +850,7 @@ public:
 			_row = min(_lines.length - 1, _scrollY + screenHeight * 2 - 1);
 			break;
 		default:
-			break;
+			return true;
 		}
 
 		if (_row < _scrollY)
@@ -744,20 +880,50 @@ private:
 	bool _showCommandInput = false;
 	ulong _statusHeight = 1;
 
-	Line[] _statusMessages;
-	MonoTime _statusDecayAt;
-	Duration _statusDelay = 1.seconds;
+	struct Status {
+		Line line;
+		Duration duration;
+	}
 
-	void _addStatus(Line status) {
+	Status[] _statusMessages;
+	MonoTime _statusDecayAt;
+
+	void _addStatus(Line status, Duration duration = 1.seconds) {
 		if (!_statusMessages.length)
-			_statusDecayAt = MonoTime.currTime + _statusDelay;
-		_statusMessages ~= status;
+			_statusDecayAt = MonoTime.currTime + duration;
+		_statusMessages ~= Status(status, duration);
 	}
 }
 
 Editor* editor;
 
-void main() {
+version (unittest) {
+	void main() {
+	}
+} else {
+	void main() {
+		Terminal.init();
+		scope (exit)
+			Terminal.destroy;
+		Editor editor;
+		scope (exit)
+			editor.destroy;
+
+		editor.open();
+
+		while (true) {
+			editor.refreshScreen(0, Terminal.size[1]);
+			if (!editor.processKeypress())
+				break;
+
+			//import core.memory : GC;
+
+			//GC.collect();
+		}
+	}
+}
+
+unittest {
 	Terminal.init();
 	scope (exit)
 		Terminal.destroy;
@@ -766,11 +932,4 @@ void main() {
 		editor.destroy;
 
 	editor.open();
-
-	while (true) {
-		editor.refreshScreen();
-		if (!editor.processKeypress())
-			break;
-	}
-
 }
