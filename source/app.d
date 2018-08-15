@@ -85,7 +85,7 @@ public static:
 
 		_disableRawMode();
 
-		perror(format!"[%s:%3d] %s"(file, line, s).toStringz);
+		perror(format("[%s:%3d] %s", file, line, s).toStringz);
 		exit(errno ? errno : -1);
 	}
 
@@ -181,7 +181,7 @@ public static:
 	}
 
 	void moveTo(long x = 0, long y = 0) {
-		write(format!"\x1b[%d;%dH"(y + 1, x + 1));
+		write(format("\x1b[%d;%dH", y + 1, x + 1));
 	}
 
 	void clear() {
@@ -346,9 +346,9 @@ struct Line {
 		}
 
 		string opSlice(size_t x, size_t y) {
-			assert(x < y, format!"%d < %d"(x, y));
-			assert(x <= str.length, format!"(y=%d), x=%d is outside of string(len: %d)"(y, x, str.length));
-			assert(y <= str.length, format!"(x=%d), y=%d is outside of string(len: %d)"(x, y, str.length));
+			assert(x < y, format("%d < %d", x, y));
+			assert(x <= str.length, format(", y=%d), x=%d is outside of string(len: %d)", y, x, str.length));
+			assert(y <= str.length, format(", x=%d), y=%d is outside of string(len: %d)", x, y, str.length));
 			return style.toString() ~ str[x .. y] ~ "\x1b[0m";
 		}
 
@@ -510,7 +510,7 @@ struct Line {
 				}
 				while (isSpace(ch));
 
-				part.str = format!"%s"(repeat(Config.spaceChar, spaceCount));
+				part.str = format("%s", repeat(Config.spaceChar, spaceCount));
 
 				wasSpace = true;
 				wasChar = false;
@@ -603,7 +603,7 @@ public:
 
 		lines.map!((x) {
 			Terminal.moveTo(0, 1);
-			Terminal.write(format!"Constructing %d/%d..."(++idx, lines.length));
+			Terminal.write(format("Constructing %d/%d...", ++idx, lines.length));
 			Terminal.flush();
 			return x;
 		})
@@ -611,7 +611,7 @@ public:
 			.copy(_lines);
 
 		Terminal.moveTo(0, 1);
-		Terminal.write(format!"Constructing %d/%d... [\x1b[32mDONE\x1b[0m]"(idx, lines.length));
+		Terminal.write(format("Constructing %d/%d... [\x1b[32mDONE\x1b[0m]", idx, lines.length));
 		Terminal.flush();
 
 		GC.disable;
@@ -624,7 +624,7 @@ public:
 		idx = 0;
 		_lines.each!((ref x) {
 			Terminal.moveTo(0, 2);
-			Terminal.write(format!"Rendering %d/%d..."(++idx, _lines.length));
+			Terminal.write(format("Rendering %d/%d...", ++idx, _lines.length));
 			Terminal.flush();
 			x.refresh();
 
@@ -632,7 +632,7 @@ public:
 		});
 
 		Terminal.moveTo(0, 2);
-		Terminal.write(format!"Rendering %d/%d... [\x1b[32mDONE\x1b[0m]"(idx, lines.length));
+		Terminal.write(format("Rendering %d/%d... [\x1b[32mDONE\x1b[0m]", idx, lines.length));
 		Terminal.flush();
 
 		Line status;
@@ -658,7 +658,7 @@ public:
 			Terminal.write("\x1b[49m");
 			Terminal.clearLine();
 			if (_showLineNumber)
-				Terminal.write(format!"\x1b[90m%*d| \x1b[0m"(_lineNumberWidth - 2, row + 1));
+				Terminal.write(format("\x1b[90m%*d| \x1b[0m", _lineNumberWidth - 2, row + 1));
 
 			if (row < 0 || row >= _lines.length) {
 				Terminal.write("\x1b[90m~\x1b[0m");
@@ -666,7 +666,7 @@ public:
 				if (!_lines.length && row == screenHeight / 3) {
 					import std.algorithm : min;
 
-					string welcome = format!"D editor -- version %s"(Build.version_);
+					string welcome = format("D editor -- version %s", Build.version_);
 					size_t welcomeLength = min(welcome.length, Terminal.size[0]);
 					long padding = cast(long)(Terminal.size[0] - welcomeLength) / 2;
 
@@ -732,7 +732,7 @@ public:
 		Terminal.moveTo(0, Terminal.size[1] - _statusHeight);
 		Terminal.clearLine();
 
-		string str = format!"%-*s"(Terminal.size[0], format!"%s - %d lines %d/%d"(_file.baseName, _lines.length, _row + 1, _lines.length));
+		string str = format("%-*s", Terminal.size[0], format("%s - %d lines %d/%d", _file.baseName, _lines.length, _row + 1, _lines.length));
 		Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.reverse = true; return t; }(), str)]).toString);
 
 		if (_showCommandInput) {
