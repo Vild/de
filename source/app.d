@@ -15,6 +15,7 @@ import core.stdc.errno;
 import core.time;
 
 import std.format : format;
+import std.traits : isNumeric;
 
 import linebreak;
 
@@ -89,8 +90,31 @@ public static:
 		exit(errno ? errno : -1);
 	}
 
+	void write(Line line) {
+		size_t lineLen = line.length;
+		line.slice((str) { _buffer ~= str; }, 0, lineLen);
+
+		if (lineLen < _size[0] && line.renderStyle == Line.RenderStyle.fillWidth) {
+			line.textParts[$ - 1].style.toString((str) { _buffer ~= str; });
+			while (lineLen++ != _size[0])
+				_buffer ~= ' ';
+			_buffer ~= "\x1b[0m";
+		}
+	}
+
 	void write(string str) {
 		_buffer ~= str;
+	}
+
+	void write(const(char[]) str) {
+		_buffer ~= str;
+	}
+
+	void write(T)(T num) if (isNumeric!T) {
+		import stdx.string : numberToString;
+
+		static char[64 * 8] buffer;
+		_buffer ~= numberToString(buffer, num, 10);
 	}
 
 	void flush() {
@@ -181,7 +205,11 @@ public static:
 	}
 
 	void moveTo(long x = 0, long y = 0) {
-		write(format("\x1b[%d;%dH", y + 1, x + 1));
+		write("\x1b[");
+		write(y + 1);
+		write(";");
+		write(x + 1);
+		write("H");
 	}
 
 	void clear() {
@@ -299,36 +327,33 @@ struct TextStyle {
 	Color fg = Color.defaultColor;
 	Color bg = Color.defaultColor; // + 10
 
-	string toString() {
-		import std.array : appender;
-		import std.conv : to;
+	void toString(scope void delegate(const(char)[]) sink) {
+		import stdx.string : numberToString;
 
-		auto str = appender!string();
-		str.reserve = 3 + 8 * 2 + (3 + 1) * 2;
+		static char[64 * 8] buf;
 
-		str ~= "\x1b[";
+		sink("\x1b[");
 		if (bright)
-			str ~= "1;";
+			sink("1;");
 		if (dim)
-			str ~= "2;";
+			sink("2;");
 		if (italic)
-			str ~= "3;";
+			sink("3;");
 		if (underscore)
-			str ~= "4;";
+			sink("4;");
 		if (blink)
-			str ~= "5;";
+			sink("5;");
 		if (reverse)
-			str ~= "7;";
+			sink("7;");
 		if (crossedOut)
-			str ~= "9;";
+			sink("9;");
 		if (overscore)
-			str ~= "53;";
+			sink("53;");
 
-		str.put((cast(int)fg).to!string);
-		str ~= ";";
-		str.put((cast(int)bg + 10).to!string);
-		str ~= "m";
-		return str.data;
+		sink(numberToString(buf, fg));
+		sink(";");
+		sink(numberToString(buf, bg + 10));
+		sink("m");
 	}
 }
 
@@ -346,23 +371,32 @@ struct Line {
 		}
 
 		string opSlice(size_t x, size_t y) {
+			import std.array : appender;
+
+			auto output = appender!string;
+			slice((str) => output ~= str, x, y);
+			return output.data();
+		}
+
+		void slice(scope void delegate(const(char)[]) sink, size_t x, size_t y) {
 			assert(x < y, format("%d < %d", x, y));
 			assert(x <= str.length, format(", y=%d), x=%d is outside of string(len: %d)", y, x, str.length));
 			assert(y <= str.length, format(", x=%d), y=%d is outside of string(len: %d)", x, y, str.length));
-			return style.toString() ~ str[x .. y] ~ "\x1b[0m";
-		}
 
-		string toString() {
-			return opSlice(0, length);
+			style.toString(sink);
+			sink(str[x .. y]);
+			sink("\x1b[0m");
 		}
+	}
+
+	enum RenderStyle {
+		normal, // Compact
+		fillWidth, // Will entire line with last parts style
 	}
 
 	string text;
 	Part[] textParts;
-
-	string toString() {
-		return opSlice(0, length);
-	}
+	RenderStyle renderStyle;
 
 	@property size_t length() {
 		import std.algorithm : map, sum;
@@ -375,14 +409,20 @@ struct Line {
 	}
 
 	string opSlice(size_t x, size_t y) {
-		import std.range;
 		import std.array : appender;
 
 		auto output = appender!string;
+		slice((str) => output ~= str, x, y);
+		return output.data();
+	}
+
+	void slice(scope void delegate(const(char)[]) sink, size_t x, size_t y) {
+		import std.range;
+
 		Part[] parts = textParts;
 
 		if (parts.empty || x == y)
-			return "";
+			return;
 
 		// Step 1. discard parts until x is a valid location in part
 		while (!parts.empty && x && x < y && x > parts[0].length) {
@@ -392,7 +432,7 @@ struct Line {
 		}
 
 		if (parts.empty)
-			return "";
+			return;
 
 		// Step 2 Get data so X becomes 0
 		if (!parts.empty && x) {
@@ -403,13 +443,13 @@ struct Line {
 			if (part.length - x < sizeWant) // Won't find all the requested data in this part
 				sizeWant = part.length - x;
 
-			output ~= part[x .. sizeWant + x];
+			sink(part[x .. sizeWant + x]);
 			x = 0;
 			y -= sizeWant;
 		}
 
 		if (parts.empty)
-			return output.data;
+			return;
 
 		// Step 3 Continue to get data until y = 0
 		while (!parts.empty && y) {
@@ -420,12 +460,10 @@ struct Line {
 			if (part.length < sizeWant) // Won't find all the requested data in this part
 				sizeWant = part.length;
 
-			output ~= part[x .. sizeWant];
+			sink(part[x .. sizeWant]);
 
 			y -= sizeWant;
 		}
-
-		return output.data;
 	}
 
 	bool haveRefreshed; //TODO:
@@ -437,7 +475,7 @@ struct Line {
 		import std.utf : toUTF8, codeLength;
 
 		textParts.length = 0;
-		size_t idx = 0;
+		size_t idx;
 		bool wasSpace;
 		bool wasChar;
 
@@ -562,7 +600,7 @@ struct Line {
 		if (!column)
 			return 0;
 
-		size_t idx = 0;
+		size_t idx;
 		foreach (i, ch; text) {
 			if (ch == '\t')
 				idx += (Config.tabSize - 1) - (idx % Config.tabSize);
@@ -705,7 +743,6 @@ public:
 				_statusMessages.popFront;
 				if (_statusMessages.length)
 					_statusDecayAt = MonoTime.currTime + _statusMessages.front.duration;
-
 			}
 		}
 
@@ -732,21 +769,22 @@ public:
 		Terminal.moveTo(0, Terminal.size[1] - _statusHeight);
 		Terminal.clearLine();
 
-		string str = format("%-*s", Terminal.size[0], format("%s - %d lines %d/%d", _file.baseName, _lines.length, _row + 1, _lines.length));
-		Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.reverse = true; return t; }(), str)]).toString);
+		string str = format("%s - %d lines %d/%d", _file.baseName, _lines.length, _row + 1, _lines.length);
+		if (str.length > Terminal.size[0])
+			str.length = Terminal.size[0];
+
+		Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.reverse = true; return t; }(), str)], Line.RenderStyle.fillWidth));
 
 		if (_showCommandInput) {
 			Terminal.moveTo(0, Terminal.size[1] - _statusHeight + 1);
 			Terminal.clearLine();
-			Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.bright = true; t.fg = Color.yellow; return t; }(), "<INPUT HERE>")])
-					.toString);
+			Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.bright = true; t.fg = Color.yellow; return t; }(), "<INPUT HERE>")]));
 		} else if (_statusMessages.length) {
 			import std.range : front;
 
 			Terminal.moveTo(0, Terminal.size[1] - _statusHeight + 1);
 			Terminal.clearLine();
-			string status = _statusMessages.front.line.toString;
-			Terminal.write(status[0 .. (status.length < Terminal.size[0]) ? status.length : Terminal.size[0]]);
+			_statusMessages.front.line.slice((const(char[]) str) { Terminal.write(str); }, 0, Terminal.size[0]);
 		}
 
 		Line* l = &_lines[_row];
