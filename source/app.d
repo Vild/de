@@ -68,6 +68,7 @@ public static:
 			die("sigaction");
 
 		_enableRawMode();
+		clear();
 		_refreshSize(0);
 	}
 
@@ -213,15 +214,29 @@ public static:
 	}
 
 	void clear() {
-		write("\x1b[2J");
+		TextStyle t;
+
+		write("\x1b[");
+		write(cast(size_t)t.fg);
+		write(";");
+		write(cast(size_t)(t.bg + 10));
+		write("m\x1b[2J\x1b[0m");
 	}
 
 	void clearLine() {
-		write("\x1b[K");
+		TextStyle t;
+
+		write("\x1b[");
+		write(cast(size_t)(t.bg + 10));
+		write("m\x1b[K\x1b[0m");
 	}
 
 	@property void cursorVisibility(bool v) {
-		write("\x1b[?25" ~ (v ? "h" : "l"));
+		write("\x1b[?25");
+		if (v)
+			write("h");
+		else
+			write("l");
 	}
 
 	@property bool gotResized() {
@@ -324,8 +339,8 @@ struct TextStyle {
 	bool crossedOut; // 9
 	bool overscore; // 53
 
-	Color fg = Color.defaultColor;
-	Color bg = Color.defaultColor; // + 10
+	Color fg = Color.brightWhite; //Color.defaultColor;
+	Color bg = Color.brightBlack; //Color.defaultColor; // + 10
 
 	void toString(scope void delegate(const(char)[]) sink) {
 		import stdx.string : numberToString;
@@ -491,12 +506,13 @@ struct Line {
 				import std.array : insertInPlace;
 				import std.range : repeat;
 
-				if (wasSpace)
-					textParts[$ - 1].style.bg = Color.yellow;
-
 				Part part;
-				part.style.fg = Color.brightBlack;
+				part.style.fg = Color.white;
 				part.style.dim = true;
+				if (wasSpace) {
+					textParts[$ - 1].style.bg = Color.brightYellow;
+					textParts[$ - 1].style.dim = false;
+				}
 
 				size_t tabCount;
 
@@ -532,7 +548,7 @@ struct Line {
 				textParts ~= part;
 			} else if (isSpace(ch)) {
 				Part part;
-				part.style.fg = Color.brightBlack;
+				part.style.fg = Color.white;
 				part.style.dim = true;
 
 				size_t spaceCount;
@@ -679,6 +695,7 @@ public:
 			= "Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Random status message |";
 		status.textParts[0].style.bright = true;
 		status.textParts[0].style.fg = Color.brightCyan;
+		status.textParts[0].style.bg = Color.black;
 
 		_addStatus(status, 5.seconds);
 
@@ -696,7 +713,7 @@ public:
 			Terminal.write("\x1b[49m");
 			Terminal.clearLine();
 			if (_showLineNumber)
-				Terminal.write(format("\x1b[90m%*d| \x1b[0m", _lineNumberWidth - 2, row + 1));
+				Terminal.write(format("\x1b[%d;%dm %*d \x1b[0m", Color.white, Color.black + 10, _lineNumberWidth - 2, row + 1));
 
 			if (row < 0 || row >= _lines.length) {
 				Terminal.write("\x1b[90m~\x1b[0m");
@@ -725,16 +742,14 @@ public:
 		}
 	}
 
-	void refreshScreen(size_t startRow, size_t endRow) {
+	void refreshScreen() {
 		import std.string : toStringz;
 		import std.range : repeat;
 		import std.array : array;
 		import std.path : baseName;
 
-		if (Terminal.gotResized) {
-			startRow = 0;
-			endRow = Terminal.size[1];
-		}
+		if (Terminal.gotResized)
+			_refreshPart(0, Terminal.size[1] - 1);
 
 		if (_statusMessages.length) {
 			import std.range : popFront, front;
@@ -743,6 +758,8 @@ public:
 				_statusMessages.popFront;
 				if (_statusMessages.length)
 					_statusDecayAt = MonoTime.currTime + _statusMessages.front.duration;
+
+				_refreshPart(Terminal.size[1] - 3, Terminal.size[1] - 1);
 			}
 		}
 
@@ -751,20 +768,26 @@ public:
 		Terminal.cursorVisibility = false;
 
 		if (_showLineNumber) {
+			ulong newWidth;
 			if (_lines.length) {
 				import std.math : log10;
 				import std.algorithm : min;
 
-				_lineNumberWidth = cast(long)log10(min(_scrollY + Terminal.size[1] - _statusHeight, _lines.length)) + 1;
+				newWidth = cast(long)log10(min(_scrollY + Terminal.size[1] - _statusHeight, _lines.length)) + 1;
 			} else
-				_lineNumberWidth = 1;
+				newWidth = 1;
 
-			_lineNumberWidth += 2;
+			newWidth += 2;
+
+			if (newWidth > _lineNumberWidth || !_lineNumberWidth)
+				_lineNumberWidth = newWidth;
 		} else
 			_lineNumberWidth = 0;
 
-		if (startRow < endRow)
-			drawRows(startRow, endRow);
+		if (_refreshFrom < _refreshTo)
+			drawRows(_refreshFrom, _refreshTo);
+
+		_refreshFrom = _refreshTo = 0;
 
 		Terminal.moveTo(0, Terminal.size[1] - _statusHeight);
 		Terminal.clearLine();
@@ -773,7 +796,8 @@ public:
 		if (str.length > Terminal.size[0])
 			str.length = Terminal.size[0];
 
-		Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.reverse = true; return t; }(), str)], Line.RenderStyle.fillWidth));
+		Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = Color.black; return t; }(), str)],
+				Line.RenderStyle.fillWidth));
 
 		if (_showCommandInput) {
 			Terminal.moveTo(0, Terminal.size[1] - _statusHeight + 1);
@@ -809,6 +833,8 @@ public:
 		if (k != Key.unknown)
 			_lastKey = k;
 		switch (k) {
+		default:
+			return true;
 		case CTRL_KEY('q'):
 			return false;
 		case CTRL_KEY('w'):
@@ -816,7 +842,8 @@ public:
 			break;
 		case CTRL_KEY('e'):
 			_showCommandInput = !_showCommandInput;
-			break;
+			_refreshPart(Terminal.size[1] - 3, Terminal.size[1] - 1);
+			return true;
 
 		case CTRL_KEY('r'): {
 				import std.traits : EnumMembers;
@@ -830,9 +857,10 @@ public:
 				status.textParts[0].style.underscore = true;
 				status.textParts[0].style.italic = true;
 				status.textParts[0].style.fg = colors[rand() % colors.length];
+				status.textParts[0].style.bg = Color.black;
 				_addStatus(status);
 			}
-			break;
+			return true;
 
 		case Key.arrowUp:
 			if (_row > 0) {
@@ -887,8 +915,6 @@ public:
 		case Key.pageDown:
 			_row = min(_lines.length - 1, _scrollY + screenHeight * 2 - 1);
 			break;
-		default:
-			return true;
 		}
 
 		if (_row < _scrollY)
@@ -900,6 +926,8 @@ public:
 			_scrollX = _column;
 		else if (_column >= (Terminal.size[0] - _lineNumberWidth) + _scrollX)
 			_scrollX = _column - (Terminal.size[0] - _lineNumberWidth) + 1;
+
+		_refreshPart(0, Terminal.size[1] - 1);
 
 		return true;
 	}
@@ -918,6 +946,9 @@ private:
 	bool _showCommandInput = false;
 	ulong _statusHeight = 1;
 
+	size_t _refreshFrom;
+	size_t _refreshTo;
+
 	struct Status {
 		Line line;
 		Duration duration;
@@ -930,6 +961,13 @@ private:
 		if (!_statusMessages.length)
 			_statusDecayAt = MonoTime.currTime + duration;
 		_statusMessages ~= Status(status, duration);
+	}
+
+	void _refreshPart(size_t from, size_t to) {
+		import std.algorithm : min, max;
+
+		_refreshFrom = _refreshFrom.min(from);
+		_refreshTo = _refreshTo.max(to);
 	}
 }
 
@@ -950,7 +988,7 @@ version (unittest) {
 		editor.open();
 
 		while (true) {
-			editor.refreshScreen(0, Terminal.size[1]);
+			editor.refreshScreen();
 			if (!editor.processKeypress())
 				break;
 
