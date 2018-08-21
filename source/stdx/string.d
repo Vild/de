@@ -27,8 +27,10 @@ char[] numberToString(T)(char[] buf, T number, size_t base = 10) if (isNumeric!T
 }
 
 int getCharSize(dchar ch) {
+	import std.format;
+
 	auto r = utf8proc_charwidth(ch);
-	assert(r > 0);
+	//assert(r > 0, format("'0x%X' returned <= 0", cast(uint)ch));
 	return r;
 }
 

@@ -415,6 +415,15 @@ struct Line {
 		return textParts.map!"a.length".sum;
 	}
 
+	void addChar(size_t idx, dchar ch) {
+		import std.utf : encode;
+
+		char[4] buf;
+		auto len = encode(buf, ch);
+		text = text[0 .. idx] ~ (cast(string)buf)[0 .. len] ~ text[idx .. $];
+		refresh();
+	}
+
 	size_t opDollar(size_t pos : 0)() {
 		return length;
 	}
@@ -833,6 +842,29 @@ public:
 		Terminal.flush();
 	}
 
+	void addChar(dchar ch) {
+		if (_row == _lines.length)
+			_lines ~= Line();
+		_lines[_row].addChar(_dataIdx, ch);
+
+		// TODO: Remove this duplicated code,
+		import std.uni : graphemeStride;
+
+		if (_dataIdx < _lines[_row].text.length) {
+			size_t idx;
+			while (idx <= _dataIdx)
+				idx += _lines[_row].text.graphemeStride(idx);
+
+			_dataIdx = idx;
+		} else if (_row < _lines.length - 1) {
+			_row++;
+			_dataIdx = 0;
+		}
+
+		_column = _lines[_row].indexToColumn(_dataIdx);
+		_refreshPart(_row, _row + 1);
+	}
+
 	bool processKeypress() {
 		import std.algorithm : min, max;
 		import std.uni : graphemeStride;
@@ -844,6 +876,7 @@ public:
 			_lastKey = k;
 		switch (k) {
 		default:
+			addChar(cast(dchar)k);
 			return true;
 		case CTRL_KEY('q'):
 			return false;
