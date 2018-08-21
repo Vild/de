@@ -1,9 +1,0 @@
-{
-	"fileVersion": 1,
-	"versions": {
-		"arsd-official": "2.1.1",
-		"derelict-utf8proc": "3.0.0-beta.1",
-		"derelict-util": "3.0.0-beta.2",
-		"linebreak": "1.1.0"
-	}
-}
