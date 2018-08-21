@@ -3,10 +3,6 @@ import core.sys.posix.termios;
 import core.sys.posix.sys.ioctl;
 import core.sys.posix.signal;
 
-// dfmt off
-		//  	 		derp
-    //	   		derp 2
-// dfmt on
 import core.stdc.ctype;
 import core.stdc.stdio;
 import core.stdc.stdlib;
@@ -16,8 +12,6 @@ import core.time;
 
 import std.format : format;
 import std.traits : isNumeric;
-
-import linebreak;
 
 alias CTRL_KEY = (char k) => cast(Key)((k) & 0x1f);
 
@@ -378,6 +372,8 @@ struct Line {
 		string str;
 
 		@property size_t length() {
+			import stdx.string;
+
 			return str.length;
 		}
 
@@ -395,8 +391,8 @@ struct Line {
 
 		void slice(scope void delegate(const(char)[]) sink, size_t x, size_t y) {
 			assert(x < y, format("%d < %d", x, y));
-			assert(x <= str.length, format(", y=%d), x=%d is outside of string(len: %d)", y, x, str.length));
-			assert(y <= str.length, format(", x=%d), y=%d is outside of string(len: %d)", x, y, str.length));
+			assert(x <= length, format(", y=%d), x=%d is outside of string(len: %d)", y, x, length));
+			assert(y <= length, format(", x=%d), y=%d is outside of string(len: %d)", x, y, length));
 
 			style.toString(sink);
 			sink(str[x .. y]);
@@ -481,9 +477,7 @@ struct Line {
 		}
 	}
 
-	bool haveRefreshed; //TODO:
 	void refresh() {
-		haveRefreshed = true;
 		import std.string : indexOf;
 		import std.algorithm : filter, sum;
 		import std.range : popFront, front, empty, repeat;
@@ -599,32 +593,49 @@ struct Line {
 	}
 
 	long indexToColumn(long dataIdx) {
-		import std.algorithm : min;
+		import stdx.string : getCharSize;
+		import std.uni : byGrapheme, Grapheme;
+		import std.utf : codeLength;
 
-		size_t idx = 0;
-		foreach (ch; text[0 .. dataIdx.min(text.length)]) {
-			if (ch == '\t')
-				idx += (Config.tabSize - 1) - (idx % Config.tabSize);
-			idx++;
+		size_t idx;
+		size_t dataCount;
+		foreach (Grapheme grapheme; text.byGrapheme) {
+			if (dataCount >= dataIdx)
+				break;
+			if (grapheme.length == 1 && grapheme[0] == '\t')
+				idx += (Config.tabSize - 1) - (idx % Config.tabSize) + 1;
+			else
+				idx += grapheme[0].getCharSize;
+
+			foreach (ch; grapheme)
+				dataCount += ch.codeLength!char;
 		}
 		return idx;
 	}
 
 	long columnToIndex(long column) {
-		import std.algorithm : min;
+		import stdx.string : getCharSize;
+		import std.uni : byGrapheme, Grapheme;
+		import std.utf : codeLength;
 
 		if (!column)
 			return 0;
 
 		size_t idx;
-		foreach (i, ch; text) {
-			if (ch == '\t')
-				idx += (Config.tabSize - 1) - (idx % Config.tabSize);
-			idx++;
+		size_t i;
+		foreach (Grapheme grapheme; text.byGrapheme) {
+			if (grapheme.length == 1 && grapheme[0] == '\t')
+				idx += (Config.tabSize - 1) - (idx % Config.tabSize) + 1;
+			else
+				idx += grapheme[0].getCharSize;
+
 			if (column == idx)
 				return i + 1;
 			else if (column < idx)
 				return i;
+
+			foreach (ch; grapheme)
+				i += ch.codeLength!char;
 		}
 		return column;
 	}
@@ -735,8 +746,6 @@ public:
 
 				Line* l = &_lines[row];
 
-				if (!l.haveRefreshed)
-					l.refresh();
 				Terminal.write((*l)[_scrollX .. _scrollX + Terminal.size[0] - _lineNumberWidth]);
 			}
 		}
@@ -826,6 +835,7 @@ public:
 
 	bool processKeypress() {
 		import std.algorithm : min, max;
+		import std.uni : graphemeStride;
 
 		long screenHeight = Terminal.size[1] - _statusHeight;
 
@@ -877,9 +887,16 @@ public:
 		case Key.arrowLeft:
 			if (_dataIdx > _lines[_row].text.length)
 				_dataIdx = _lines[_row].text.length;
-			else if (_dataIdx > 0)
-				_dataIdx--;
-			else if (_row > 0) {
+			else if (_dataIdx > 0) {
+				size_t lastIdx;
+				size_t idx;
+				while (idx < _dataIdx) {
+					auto len = _lines[_row].text.graphemeStride(idx);
+					lastIdx = idx;
+					idx += len;
+				}
+				_dataIdx = lastIdx;
+			} else if (_row > 0) {
 				_row--;
 				_dataIdx = cast(long)_lines[_row].text.length;
 			}
@@ -887,9 +904,13 @@ public:
 			_column = _lines[_row].indexToColumn(_dataIdx);
 			break;
 		case Key.arrowRight:
-			if (_dataIdx < _lines[_row].text.length)
-				_dataIdx++;
-			else if (_row < _lines.length - 1) {
+			if (_dataIdx < _lines[_row].text.length) {
+				size_t idx;
+				while (idx <= _dataIdx)
+					idx += _lines[_row].text.graphemeStride(idx);
+
+				_dataIdx = idx;
+			} else if (_row < _lines.length - 1) {
 				_row++;
 				_dataIdx = 0;
 			}

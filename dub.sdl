@@ -6,5 +6,4 @@ license "MPLv2"
 
 targetPath "bin"
 
-# dependency "arsd-official:terminal" version="~>2.1.1"
-dependency "linebreak" version="~>1.1.0"
+dependency "derelict-utf8proc" version="~>3.0.0-beta.1"

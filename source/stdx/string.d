@@ -2,6 +2,12 @@ module stdx.string;
 
 import std.traits : isNumeric;
 
+import derelict.utf8proc.utf8proc;
+
+shared static this() {
+	DerelictUTF8Proc.load();
+}
+
 char[] numberToString(T)(char[] buf, T number, size_t base = 10) if (isNumeric!T) {
 	static string chars = "0123456789ABCDEF";
 	assert(base <= chars.length);
@@ -18,5 +24,26 @@ char[] numberToString(T)(char[] buf, T number, size_t base = 10) if (isNumeric!T
 		buf[buf.length - ++count] = '-';
 
 	return buf[buf.length - count .. $];
+}
 
+int getCharSize(dchar ch) {
+	auto r = utf8proc_charwidth(ch);
+	assert(r > 0);
+	return r;
+}
+
+size_t getStringWidth(string str) {
+	import std.uni;
+	import std.range;
+	import std.stdio;
+
+	size_t len;
+
+	foreach (Grapheme grapheme; str.byGrapheme) {
+		foreach (ch; grapheme[][1 .. $])
+			assert(ch.getCharSize == 0);
+
+		len += grapheme[0].getCharSize;
+	}
+	return len;
 }
