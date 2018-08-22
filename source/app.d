@@ -35,6 +35,10 @@ static:
 enum Key : long {
 	unknown = 0,
 
+	return_ = '\r',
+	backspace = '\b',
+	escape = 0x1b,
+
 	arrowUp = 1000,
 	arrowDown,
 	arrowLeft,
@@ -120,11 +124,10 @@ public static:
 	}
 
 	Key read() {
-		char readCh() {
-			long nread;
-
+		char readCh(bool waitForChar)() {
 			char c = '\0';
-			static if (false) {
+			static if (waitForChar) {
+				long nread;
 				while ((nread = .read(STDIN_FILENO, &c, 1)) != 1) {
 					if (nread == -1 && errno != EAGAIN && errno != EINTR)
 						Terminal.die("read");
@@ -135,8 +138,6 @@ public static:
 		}
 
 		Key actionKeys(char c) {
-			if (readCh() != '~')
-				Terminal.die("read - expected '~'");
 			switch (c) {
 			case '3':
 				return Key.delete_;
@@ -177,24 +178,30 @@ public static:
 			}
 		}
 
-		char c = readCh();
+		char c = readCh!true();
 		if (c == '\x1b') {
-			if (readCh() == '[') {
-				switch (c = readCh()) {
+			char seq0 = readCh!false();
+			char seq1 = readCh!false();
+
+			if (seq0 == '[') {
+				switch (seq1) {
 				case '0': .. case '9':
-					return actionKeys(c);
+					char seq2 = readCh!false();
+					if (seq2 != '~')
+						break;
+					return actionKeys(seq1);
 				case 'A': .. case 'D':
 				case 'H':
 				case 'F':
-					return arrowKeys(c);
+					return arrowKeys(seq1);
 				default:
-					return Key.unknown;
+					break;
 				}
+			} else if (seq0 == 'O') {
+				return arrowKeys(seq1);
+			}
 
-			} else if (c == 'O') {
-				return arrowKeys(readCh());
-			} else
-				Terminal.die("read - expected '['");
+			return cast(Key)'\x1b';
 		}
 		return cast(Key)c;
 	}
@@ -234,8 +241,9 @@ public static:
 	}
 
 	@property bool gotResized() {
-		if (_gotResized) {
-			_gotResized = false;
+		if (_newSize[0] != long.max) {
+			_size = _newSize;
+			_newSize = [long.max, long.max];
 			return true;
 		} else
 			return false;
@@ -247,8 +255,8 @@ public static:
 
 private static:
 	termios _origTermios;
-	bool _gotResized;
 	long[2] _size = [80, 24];
+	long[2] _newSize = [long.max, long.max];
 	string _buffer;
 
 	void _enableRawMode() {
@@ -291,13 +299,12 @@ private static:
 				i++;
 			}
 
-			if (buf[0 .. 2] != "\x1b[" || !sscanf(&buf[2], "%d;%d", &_size[1], &_size[0]))
+			if (buf[0 .. 2] != "\x1b[" || !sscanf(&buf[2], "%d;%d", &_newSize[1], &_newSize[0]))
 				Terminal.die("_refreshSize");
 		} else {
-			_size[0] = ws.ws_col;
-			_size[1] = ws.ws_row;
+			_newSize[0] = ws.ws_col;
+			_newSize[1] = ws.ws_row;
 		}
-		_gotResized = true;
 	}
 }
 
@@ -719,15 +726,18 @@ public:
 
 		_addStatus(status, 5.seconds);
 
-		drawRows(0, Terminal.size[1]);
+		foreach (ref bool l; _refreshLines)
+			l = true;
+
+		drawRows();
 	}
 
-	void drawRows(size_t startRow, size_t endRow) {
+	void drawRows() {
 		auto screenHeight = Terminal.size[1] - _statusHeight;
-		if (endRow > screenHeight)
-			endRow = screenHeight;
 
-		foreach (long y; startRow .. endRow) {
+		foreach (long y, refresh; _refreshLines) {
+			if (!refresh)
+				continue;
 			long row = y + _scrollY;
 			Terminal.moveTo(0, y);
 			Terminal.write("\x1b[49m");
@@ -766,8 +776,11 @@ public:
 		import std.array : array;
 		import std.path : baseName;
 
-		if (Terminal.gotResized)
-			_refreshPart(0, Terminal.size[1] - 1);
+		if (Terminal.gotResized) {
+			_refreshLines.length = Terminal.size[1];
+			foreach (ref bool l; _refreshLines)
+				l = true;
+		}
 
 		if (_statusMessages.length) {
 			import std.range : popFront, front;
@@ -777,7 +790,8 @@ public:
 				if (_statusMessages.length)
 					_statusDecayAt = MonoTime.currTime + _statusMessages.front.duration;
 
-				_refreshPart(Terminal.size[1] - 3, Terminal.size[1] - 1);
+				_refreshLines[Terminal.size[1] - 3] = true;
+				_refreshLines[Terminal.size[1] - 2] = true;
 			}
 		}
 
@@ -802,10 +816,10 @@ public:
 		} else
 			_lineNumberWidth = 0;
 
-		if (_refreshFrom < _refreshTo)
-			drawRows(_refreshFrom, _refreshTo);
+		drawRows();
 
-		_refreshFrom = _refreshTo = 0;
+		foreach (ref bool l; _refreshLines)
+			l = false;
 
 		Terminal.moveTo(0, Terminal.size[1] - _statusHeight);
 		Terminal.clearLine();
@@ -843,8 +857,15 @@ public:
 	}
 
 	void addChar(dchar ch) {
-		if (_row == _lines.length)
+		if (_row == _lines.length) {
 			_lines ~= Line();
+			if (_row >= _scrollY + Terminal.size[1])
+				_scrollY++;
+		}
+
+		if (_dataIdx > _lines[_row].text.length)
+			_dataIdx = _lines[_row].text.length;
+
 		_lines[_row].addChar(_dataIdx, ch);
 
 		// TODO: Remove this duplicated code,
@@ -862,31 +883,69 @@ public:
 		}
 
 		_column = _lines[_row].indexToColumn(_dataIdx);
-		_refreshPart(_row, _row + 1);
+
+		_refreshLines[_row - _scrollY] = true;
 	}
 
 	bool processKeypress() {
 		import std.algorithm : min, max;
 		import std.uni : graphemeStride;
+		import std.algorithm : each;
 
 		long screenHeight = Terminal.size[1] - _statusHeight;
 
+		alias updateScreen = () { _refreshLines.each!((ref x) => x = true); };
+
+		void applyScroll() {
+			if (_row < _scrollY)
+				_scrollY = _row;
+			else if (_row >= _scrollY + screenHeight)
+				_scrollY = (_row - screenHeight) + 1;
+
+			if (_column < _scrollX)
+				_scrollX = _column;
+			else if (_column >= (Terminal.size[0] - _lineNumberWidth) + _scrollX)
+				_scrollX = _column - (Terminal.size[0] - _lineNumberWidth) + 1;
+			updateScreen();
+		}
+
 		Key k = Terminal.read();
-		if (k != Key.unknown)
-			_lastKey = k;
+		if (k == Key.unknown)
+			return true;
 		switch (k) {
 		default:
 			addChar(cast(dchar)k);
-			return true;
+			break;
+
+		case Key.return_:
+			break;
+
+			//case CTRL_KEY('h'):
+		case Key.backspace:
+			break;
+
+		case Key.delete_:
+			break;
+
+		case CTRL_KEY('l'):
+			refreshScreen();
+			break;
+
+		case Key.escape:
+			// This disallow the user to write escapes codes into the file by pressing escape
+			break;
+
 		case CTRL_KEY('q'):
 			return false;
 		case CTRL_KEY('w'):
 			_showLineNumber = !_showLineNumber;
+			refreshScreen();
 			break;
 		case CTRL_KEY('e'):
 			_showCommandInput = !_showCommandInput;
-			_refreshPart(Terminal.size[1] - 3, Terminal.size[1] - 1);
-			return true;
+			_refreshLines[Terminal.size[1] - 3] = true;
+			_refreshLines[Terminal.size[1] - 2] = true;
+			break;
 
 		case CTRL_KEY('r'): {
 				import std.traits : EnumMembers;
@@ -903,18 +962,20 @@ public:
 				status.textParts[0].style.bg = Color.black;
 				_addStatus(status);
 			}
-			return true;
+			break;
 
 		case Key.arrowUp:
 			if (_row > 0) {
 				_row--;
 				_dataIdx = _lines[_row].columnToIndex(_column);
+				applyScroll();
 			}
 			break;
 		case Key.arrowDown:
 			if (_row < _lines.length - 1) {
 				_row++;
 				_dataIdx = _lines[_row].columnToIndex(_column);
+				applyScroll();
 			}
 			break;
 		case Key.arrowLeft:
@@ -935,6 +996,7 @@ public:
 			}
 
 			_column = _lines[_row].indexToColumn(_dataIdx);
+			applyScroll();
 			break;
 		case Key.arrowRight:
 			if (_dataIdx < _lines[_row].text.length) {
@@ -949,39 +1011,32 @@ public:
 			}
 
 			_column = _lines[_row].indexToColumn(_dataIdx);
+			applyScroll();
 			break;
 
 		case Key.home:
 			_dataIdx = 0;
 
 			_column = _lines[_row].indexToColumn(_dataIdx);
+			applyScroll();
 			break;
 		case Key.end:
 			_dataIdx = cast(long)_lines[_row].text.length;
 
 			_column = _lines[_row].indexToColumn(_dataIdx);
+			applyScroll();
 			break;
 
 			//TODO: move offset not cursor?
 		case Key.pageUp:
 			_row = max(0L, _scrollY - screenHeight);
+			applyScroll();
 			break;
 		case Key.pageDown:
 			_row = min(_lines.length - 1, _scrollY + screenHeight * 2 - 1);
+			applyScroll();
 			break;
 		}
-
-		if (_row < _scrollY)
-			_scrollY = _row;
-		else if (_row >= _scrollY + screenHeight)
-			_scrollY = (_row - screenHeight) + 1;
-
-		if (_column < _scrollX)
-			_scrollX = _column;
-		else if (_column >= (Terminal.size[0] - _lineNumberWidth) + _scrollX)
-			_scrollX = _column - (Terminal.size[0] - _lineNumberWidth) + 1;
-
-		_refreshPart(0, Terminal.size[1] - 1);
 
 		return true;
 	}
@@ -991,7 +1046,6 @@ private:
 	long _dataIdx; // data location
 	long _column, _row; // _column will be the screen location
 	long _scrollX, _scrollY;
-	Key _lastKey;
 	Line[] _lines;
 
 	bool _showLineNumber = true;
@@ -1000,8 +1054,7 @@ private:
 	bool _showCommandInput = false;
 	ulong _statusHeight = 1;
 
-	size_t _refreshFrom;
-	size_t _refreshTo;
+	bool[] _refreshLines;
 
 	struct Status {
 		Line line;
@@ -1015,13 +1068,6 @@ private:
 		if (!_statusMessages.length)
 			_statusDecayAt = MonoTime.currTime + duration;
 		_statusMessages ~= Status(status, duration);
-	}
-
-	void _refreshPart(size_t from, size_t to) {
-		import std.algorithm : min, max;
-
-		_refreshFrom = _refreshFrom.min(from);
-		_refreshTo = _refreshTo.max(to);
 	}
 }
 
