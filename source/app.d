@@ -2,6 +2,7 @@ import core.sys.posix.unistd;
 import core.sys.posix.termios;
 import core.sys.posix.sys.ioctl;
 import core.sys.posix.signal;
+import core.sys.posix.fcntl;
 
 import core.stdc.ctype;
 import core.stdc.stdio;
@@ -719,7 +720,7 @@ public:
 		Line status;
 		status.textParts.length = 1;
 		status.textParts[0].str
-			= "Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Random status message |";
+			= "Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Random status message | Ctrl+S Save |";
 		status.textParts[0].style.bright = true;
 		status.textParts[0].style.fg = Color.brightCyan;
 		status.textParts[0].style.bg = Color.black;
@@ -730,6 +731,35 @@ public:
 			l = true;
 
 		drawRows();
+	}
+
+	void save() {
+		import std.algorithm : map, joiner;
+		import std.range : chain;
+		import std.conv : octal, to;
+		import std.string : toStringz;
+
+		if (!_file.length)
+			return;
+
+		string saveFile = _file ~ ".sav";
+
+		string buf = _lines.map!((ref Line l) => l.text).joiner("\n").to!string ~ "\n";
+		scope (exit)
+			buf.destroy;
+
+		int fd = .open(saveFile.toStringz, O_RDWR | O_CREAT, octal!644);
+		ftruncate(fd, cast(long)buf.length);
+		write(fd, buf.ptr, cast(long)buf.length);
+		close(fd);
+
+		Line status;
+		status.textParts.length = 1;
+		status.textParts[0].str = format("Saved to file: %s", saveFile);
+		status.textParts[0].style.underscore = true;
+		status.textParts[0].style.fg = Color.green;
+		status.textParts[0].style.bg = Color.black;
+		_addStatus(status);
 	}
 
 	void drawRows() {
@@ -962,6 +992,10 @@ public:
 				status.textParts[0].style.bg = Color.black;
 				_addStatus(status);
 			}
+			break;
+
+		case CTRL_KEY('s'):
+			save();
 			break;
 
 		case Key.arrowUp:
