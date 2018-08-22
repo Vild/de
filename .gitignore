@@ -27,3 +27,6 @@ dub.selections.json
 
 # GDB
 .gdb_history
+
+# Application dirt
+*.testSave

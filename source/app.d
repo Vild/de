@@ -737,29 +737,38 @@ public:
 		import std.algorithm : map, joiner;
 		import std.range : chain;
 		import std.conv : octal, to;
-		import std.string : toStringz;
+		import std.string : toStringz, fromStringz;
+		import core.stdc.string : strerror;
 
-		if (!_file.length)
+		if (!_file.length) {
+			_addBadStatus("Not file to save to!");
 			return;
+		}
 
-		string saveFile = _file ~ ".sav";
+		string saveFile = _file ~ ".testSave";
 
 		string buf = _lines.map!((ref Line l) => l.text).joiner("\n").to!string ~ "\n";
 		scope (exit)
 			buf.destroy;
 
 		int fd = .open(saveFile.toStringz, O_RDWR | O_CREAT, octal!644);
-		ftruncate(fd, cast(long)buf.length);
-		write(fd, buf.ptr, cast(long)buf.length);
-		close(fd);
+		if (fd == -1) {
+			_addBadStatus(format("Could not save file: %s. Error: %s", saveFile, strerror(errno).fromStringz));
+			return;
+		}
+		scope (exit)
+			close(fd);
 
-		Line status;
-		status.textParts.length = 1;
-		status.textParts[0].str = format("Saved to file: %s", saveFile);
-		status.textParts[0].style.underscore = true;
-		status.textParts[0].style.fg = Color.green;
-		status.textParts[0].style.bg = Color.black;
-		_addStatus(status);
+		if (ftruncate(fd, cast(long)buf.length) == -1) {
+			_addBadStatus(format("Could not save file: %s. Error: %s", saveFile, strerror(errno).fromStringz));
+			return;
+		}
+		if (write(fd, buf.ptr, cast(long)buf.length) != buf.length) {
+			_addBadStatus(format("Could not save file: %s. Error: %s", saveFile, strerror(errno).fromStringz));
+			return;
+		}
+
+		_addGoodStatus(format("Saved to file: %s", saveFile));
 	}
 
 	void drawRows() {
@@ -1102,6 +1111,26 @@ private:
 		if (!_statusMessages.length)
 			_statusDecayAt = MonoTime.currTime + duration;
 		_statusMessages ~= Status(status, duration);
+	}
+
+	void _addGoodStatus(string str) {
+		Line status;
+		status.textParts.length = 1;
+		status.textParts[0].str = str;
+		status.textParts[0].style.underscore = true;
+		status.textParts[0].style.fg = Color.green;
+		status.textParts[0].style.bg = Color.black;
+		_addStatus(status);
+	}
+
+	void _addBadStatus(string str) {
+		Line status;
+		status.textParts.length = 1;
+		status.textParts[0].str = str;
+		status.textParts[0].style.underscore = true;
+		status.textParts[0].style.fg = Color.black;
+		status.textParts[0].style.bg = Color.red;
+		_addStatus(status);
 	}
 }
 
