@@ -81,15 +81,32 @@ struct UTFString {
 	private char[] _utf8Data;
 	private size_t _position;
 
+	private Character _front;
+	private size_t _length;
+
+	private void _refreshData() {
+		import std.utf : byDchar;
+		import std.range.primitives : walkLength;
+
+		auto r = _utf8Data[toUTF8Offset(_position) .. $].byDchar;
+		_front = decodeGrapheme(r).Character;
+
+		_length = _utf8Data[toUTF8Offset(_position) .. $].byGrapheme.walkLength;
+	}
+
 	this(char[] utf8Data, size_t position) {
 		_utf8Data = utf8Data;
 		_position = position;
+		if (_utf8Data.length)
+			_refreshData();
 	}
 
 	this(String)(String str) if (isSomeChar!(ElementType!String)) {
 		import std.conv : to;
 
 		_utf8Data = str.to!(char[]);
+		if (_utf8Data.length)
+			_refreshData();
 	}
 
 	this(String)(String chars) if (is(ElementType!String == Character)) {
@@ -101,45 +118,33 @@ struct UTFString {
 				app.put(ch);
 
 		_utf8Data = app.data;
+		if (_utf8Data.length)
+			_refreshData();
 	}
 
 	private size_t toUTF8Offset(size_t idx) {
-		import std.utf : codeLength;
-
 		size_t len;
-		auto r = _utf8Data.byGrapheme;
 
-		while (idx && !r.empty) {
-			Grapheme grapheme = r.front;
-			foreach (ch; grapheme)
-				len += ch.codeLength!char;
+		while (idx && len < _utf8Data.length) {
+			len += _utf8Data.graphemeStride(len);
 			idx--;
-
-			r.popFront;
 		}
 
 		return len;
 	}
 
 	private size_t fromUTF8Offset(size_t offset) {
-		import std.utf : codeLength;
-
 		size_t len;
 		size_t idx;
-		auto r = _utf8Data.byGrapheme;
 
-		while (idx && !r.empty) {
-			Grapheme grapheme = r.front;
-			foreach (ch; grapheme)
-				len += ch.codeLength!char;
+		while (idx && len < _utf8Data.length) {
+			len += _utf8Data.graphemeStride(len);
 			idx++;
 
 			if (len == offset)
 				return idx;
 			else if (len > offset)
 				return idx - 1;
-
-			r.popFront;
 		}
 
 		return idx;
@@ -166,14 +171,17 @@ struct UTFString {
 	}
 
 	@property Character front() {
-		import std.utf : byDchar;
-
-		auto r = _utf8Data[toUTF8Offset(_position) .. $].byDchar;
-		return decodeGrapheme(r).Character;
+		return _front;
 	}
 
 	void popFront() {
 		_position++;
+
+		if (empty) {
+			_front = Character.init;
+			_length = 0;
+		} else
+			_refreshData();
 	}
 
 	void reset() {
@@ -189,9 +197,7 @@ struct UTFString {
 	}
 
 	@property size_t length() {
-		import std.range.primitives : walkLength;
-
-		return _utf8Data[toUTF8Offset(_position) .. $].byGrapheme.walkLength;
+		return _length;
 	}
 
 	size_t opDollar(size_t pos : 0)() {
@@ -246,4 +252,5 @@ struct UTFString {
 	@property char[] rawData() {
 		return _utf8Data[toUTF8Offset(_position) .. $];
 	}
+
 }
