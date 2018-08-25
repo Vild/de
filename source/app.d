@@ -14,6 +14,8 @@ import core.time;
 import std.format : format;
 import std.traits : isNumeric;
 
+import stdx.string;
+
 alias CTRL_KEY = (char k) => cast(Key)((k) & 0x1f);
 
 static struct Build {
@@ -377,11 +379,10 @@ struct TextStyle {
 struct Line {
 	struct Part {
 		TextStyle style;
-		string str;
+		UTFString str;
+		bool special;
 
 		@property size_t length() {
-			import stdx.string;
-
 			return str.length;
 		}
 
@@ -403,7 +404,32 @@ struct Line {
 			assert(y <= length, format(", x=%d), y=%d is outside of string(len: %d)", x, y, length));
 
 			style.toString(sink);
-			sink(str[x .. y]);
+			if (x < length) {
+				import std.range : take, popFrontN;
+				import std.utf : byDchar;
+				import std.uni : Grapheme;
+				import std.algorithm : each;
+				import std.conv : to;
+
+				R skip(R)(R range, size_t n) {
+					range.popFrontN(n);
+					return range;
+				}
+
+				UTFString s = str.save;
+
+				string output;
+				// dfmt off
+				skip(s, x)
+					.take(y - x)
+					.each!((Character g) =>
+						g.grapheme.each!((x) =>
+							output ~= x
+						)
+				);
+				// dfmt on
+				sink(output);
+			}
 			sink("\x1b[0m");
 		}
 	}
@@ -413,7 +439,7 @@ struct Line {
 		fillWidth, // Will entire line with last parts style
 	}
 
-	string text;
+	UTFString text;
 	Part[] textParts;
 	RenderStyle renderStyle;
 
@@ -428,7 +454,7 @@ struct Line {
 
 		char[4] buf;
 		auto len = encode(buf, ch);
-		text = text[0 .. idx] ~ (cast(string)buf)[0 .. len] ~ text[idx .. $];
+		text.insert(idx, buf[0 .. len]);
 		refresh();
 	}
 
@@ -497,18 +523,18 @@ struct Line {
 	void refresh() {
 		import std.string : indexOf;
 		import std.algorithm : filter, sum;
-		import std.range : popFront, front, empty, repeat;
-		import std.utf : toUTF8, codeLength;
+		import std.range : empty, repeat;
+		import std.utf : toUTF8;
 
 		textParts.length = 0;
 		size_t idx;
 		bool wasSpace;
 		bool wasChar;
 
-		auto str = text;
+		UTFString str = text.save;
 
-		alias isTab = (ch) => ch == '\t';
-		alias isSpace = (ch) => ch == ' ' && !wasChar;
+		alias isTab = (ch) => ch.grapheme[0] == '\t';
+		alias isSpace = (ch) => ch.grapheme[0] == ' ' && !wasChar;
 		/*alias isSpace = (ch) => ch == ' ' && (!wasChar || (wasChar && textParts[$ - 1].str.length > 1
 					&& textParts[$ - 1].str[$ - 2] == '/' && (textParts[$ - 1].str[$ - 1] == '/' || textParts[$ - 1].str[$ - 1] == '*')));*/
 		while (!str.empty) {
@@ -551,7 +577,7 @@ struct Line {
 					else
 						c = Config.tabMiddle;
 				idx += numberOfSpaces;
-				part.str = buf.toUTF8;
+				part.str = UTFString(buf);
 
 				wasSpace = false;
 				wasChar = false;
@@ -575,7 +601,7 @@ struct Line {
 				}
 				while (isSpace(ch));
 
-				part.str = format("%s", repeat(Config.spaceChar, spaceCount));
+				part.str = UTFString(repeat(Config.spaceChar, spaceCount));
 
 				wasSpace = true;
 				wasChar = false;
@@ -585,10 +611,10 @@ struct Line {
 				Part part;
 
 				size_t charCount;
-				string textStart = str;
+				auto textStart = str.save;
 
 				do {
-					charCount += str.front.codeLength!char;
+					charCount++;
 					idx++;
 
 					str.popFront;
@@ -598,61 +624,50 @@ struct Line {
 				}
 				while (!isTab(ch) && !isSpace(ch));
 
-				part.str = textStart[0 .. charCount];
+				part.str = UTFString(textStart[0 .. charCount]);
 
 				wasSpace = false;
 				wasChar = true;
 
 				textParts ~= part;
-
 			}
 		}
 	}
 
 	long indexToColumn(long dataIdx) {
-		import stdx.string : getCharSize;
-		import std.uni : byGrapheme, Grapheme;
-		import std.utf : codeLength;
-
 		size_t idx;
 		size_t dataCount;
-		foreach (Grapheme grapheme; text.byGrapheme) {
+		foreach (ref Character ch; text) {
 			if (dataCount >= dataIdx)
 				break;
-			if (grapheme.length == 1 && grapheme[0] == '\t')
+			if (ch.length == 1 && ch[0] == '\t')
 				idx += (Config.tabSize - 1) - (idx % Config.tabSize) + 1;
 			else
-				idx += grapheme[0].getCharSize;
+				idx += ch.renderWidth;
 
-			foreach (ch; grapheme)
-				dataCount += ch.codeLength!char;
+			dataCount++;
 		}
 		return idx;
 	}
 
 	long columnToIndex(long column) {
-		import stdx.string : getCharSize;
-		import std.uni : byGrapheme, Grapheme;
-		import std.utf : codeLength;
-
 		if (!column)
 			return 0;
 
 		size_t idx;
 		size_t i;
-		foreach (Grapheme grapheme; text.byGrapheme) {
-			if (grapheme.length == 1 && grapheme[0] == '\t')
+		foreach (ref Character ch; text) {
+			if (ch.length == 1 && ch[0] == '\t')
 				idx += (Config.tabSize - 1) - (idx % Config.tabSize) + 1;
 			else
-				idx += grapheme[0].getCharSize;
+				idx += ch.renderWidth;
 
 			if (column == idx)
 				return i + 1;
 			else if (column < idx)
 				return i;
 
-			foreach (ch; grapheme)
-				i += ch.codeLength!char;
+			i++;
 		}
 		return column;
 	}
@@ -660,7 +675,7 @@ struct Line {
 
 struct Editor {
 public:
-	void open(string file = __FILE_FULL_PATH__) {
+	void open(string file) {
 		import std.file : readText;
 		import std.string : splitLines;
 		import std.array : array;
@@ -689,7 +704,7 @@ public:
 			Terminal.flush();
 			return x;
 		})
-			.map!(x => Line(x))
+			.map!(x => Line(UTFString(x)))
 			.copy(_lines);
 
 		Terminal.moveTo(0, 1);
@@ -709,7 +724,6 @@ public:
 			Terminal.write(format("Rendering %d/%d...", ++idx, _lines.length));
 			Terminal.flush();
 			x.refresh();
-
 			GC.collect();
 		});
 
@@ -719,8 +733,8 @@ public:
 
 		Line status;
 		status.textParts.length = 1;
-		status.textParts[0].str
-			= "Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Random status message | Ctrl+S Save |";
+		status.textParts[0].str = UTFString(
+				"Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Random status message | Ctrl+S Save |");
 		status.textParts[0].style.bright = true;
 		status.textParts[0].style.fg = Color.brightCyan;
 		status.textParts[0].style.bg = Color.black;
@@ -747,7 +761,7 @@ public:
 
 		string saveFile = _file ~ ".testSave";
 
-		string buf = _lines.map!((ref Line l) => l.text).joiner("\n").to!string ~ "\n";
+		string buf = _lines.map!((ref Line l) => l.text.rawData).joiner("\n").to!string ~ "\n";
 		scope (exit)
 			buf.destroy;
 
@@ -816,9 +830,10 @@ public:
 		import std.path : baseName;
 
 		if (Terminal.gotResized) {
+			import std.algorithm : each;
+
 			_refreshLines.length = Terminal.size[1];
-			foreach (ref bool l; _refreshLines)
-				l = true;
+			_refreshLines.each!((ref x) => x = true);
 		}
 
 		if (_statusMessages.length) {
@@ -867,13 +882,14 @@ public:
 		if (str.length > Terminal.size[0])
 			str.length = Terminal.size[0];
 
-		Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = Color.black; return t; }(), str)],
+		Terminal.write(Line(UTFString(), [Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = Color.black; return t; }(), UTFString(str))],
 				Line.RenderStyle.fillWidth));
 
 		if (_showCommandInput) {
 			Terminal.moveTo(0, Terminal.size[1] - _statusHeight + 1);
 			Terminal.clearLine();
-			Terminal.write(Line(null, [Line.Part(() { TextStyle t; t.bright = true; t.fg = Color.yellow; return t; }(), "<INPUT HERE>")]));
+			Terminal.write(Line(UTFString(), [Line.Part(() { TextStyle t; t.bright = true; t.fg = Color.yellow; return t; }(),
+					UTFString("<INPUT HERE>"))]));
 		} else if (_statusMessages.length) {
 			import std.range : front;
 
@@ -906,20 +922,7 @@ public:
 			_dataIdx = _lines[_row].text.length;
 
 		_lines[_row].addChar(_dataIdx, ch);
-
-		// TODO: Remove this duplicated code,
-		import std.uni : graphemeStride;
-
-		if (_dataIdx < _lines[_row].text.length) {
-			size_t idx;
-			while (idx <= _dataIdx)
-				idx += _lines[_row].text.graphemeStride(idx);
-
-			_dataIdx = idx;
-		} else if (_row < _lines.length - 1) {
-			_row++;
-			_dataIdx = 0;
-		}
+		_dataIdx++;
 
 		_column = _lines[_row].indexToColumn(_dataIdx);
 
@@ -993,7 +996,7 @@ public:
 
 				Line status;
 				status.textParts.length = 1;
-				status.textParts[0].str = format("[%s] status message", MonoTime.currTime);
+				status.textParts[0].str = UTFString(format("[%s] status message", MonoTime.currTime));
 				status.textParts[0].style.overscore = true;
 				status.textParts[0].style.underscore = true;
 				status.textParts[0].style.italic = true;
@@ -1024,16 +1027,9 @@ public:
 		case Key.arrowLeft:
 			if (_dataIdx > _lines[_row].text.length)
 				_dataIdx = _lines[_row].text.length;
-			else if (_dataIdx > 0) {
-				size_t lastIdx;
-				size_t idx;
-				while (idx < _dataIdx) {
-					auto len = _lines[_row].text.graphemeStride(idx);
-					lastIdx = idx;
-					idx += len;
-				}
-				_dataIdx = lastIdx;
-			} else if (_row > 0) {
+			else if (_dataIdx > 0)
+				_dataIdx--;
+			else if (_row > 0) {
 				_row--;
 				_dataIdx = cast(long)_lines[_row].text.length;
 			}
@@ -1042,13 +1038,9 @@ public:
 			applyScroll();
 			break;
 		case Key.arrowRight:
-			if (_dataIdx < _lines[_row].text.length) {
-				size_t idx;
-				while (idx <= _dataIdx)
-					idx += _lines[_row].text.graphemeStride(idx);
-
-				_dataIdx = idx;
-			} else if (_row < _lines.length - 1) {
+			if (_dataIdx < _lines[_row].text.length)
+				_dataIdx++;
+			else if (_row < _lines.length - 1) {
 				_row++;
 				_dataIdx = 0;
 			}
@@ -1116,7 +1108,7 @@ private:
 	void _addGoodStatus(string str) {
 		Line status;
 		status.textParts.length = 1;
-		status.textParts[0].str = str;
+		status.textParts[0].str = UTFString(str);
 		status.textParts[0].style.underscore = true;
 		status.textParts[0].style.fg = Color.green;
 		status.textParts[0].style.bg = Color.black;
@@ -1126,7 +1118,7 @@ private:
 	void _addBadStatus(string str) {
 		Line status;
 		status.textParts.length = 1;
-		status.textParts[0].str = str;
+		status.textParts[0].str = UTFString(str);
 		status.textParts[0].style.underscore = true;
 		status.textParts[0].style.fg = Color.black;
 		status.textParts[0].style.bg = Color.red;
@@ -1148,7 +1140,7 @@ version (unittest) {
 		scope (exit)
 			editor.destroy;
 
-		editor.open();
+		editor.open("testfile.txt");
 
 		while (true) {
 			editor.refreshScreen();
@@ -1170,5 +1162,5 @@ unittest {
 	scope (exit)
 		editor.destroy;
 
-	editor.open();
+	editor.open("testfile.txt");
 }
