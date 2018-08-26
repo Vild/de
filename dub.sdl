@@ -7,3 +7,11 @@ license "MPLv2"
 targetPath "bin"
 
 dependency "derelict-utf8proc" version="~>3.0.0-beta.1"
+
+configuration "de" {
+	targetType "executable"
+}
+
+configuration "unittest" {
+	dependency "silly" version="~>0.2.0"
+}

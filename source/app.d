@@ -68,7 +68,7 @@ public static:
 		if (sigaction(SIGWINCH, &sa, null) == -1)
 			die("sigaction");
 
-		_enableRawMode();
+		version (unittest) {} else _enableRawMode();
 		clear();
 		_refreshSize(0);
 	}
@@ -78,7 +78,7 @@ public static:
 		if (called)
 			return;
 		called = true;
-		_disableRawMode();
+		version (unittest) {} else _disableRawMode();
 		printf("\x1b[1mThank you for using DE - Powered by https://dlang.org/\x1b[0m\n");
 	}
 
@@ -344,7 +344,7 @@ struct TextStyle {
 	bool overscore; // 53
 
 	Color fg = Color.brightWhite; //Color.defaultColor;
-	Color bg = Color.brightBlack; //Color.defaultColor; // + 10
+	Color bg = Color.defaultColor; // + 10
 
 	void toString(scope void delegate(const(char)[]) sink) {
 		import stdx.string : numberToString;
@@ -386,8 +386,12 @@ struct Line {
 			return str.length;
 		}
 
+		@property size_t renderWidth() {
+			return str.renderedWidth;
+		}
+
 		size_t opDollar(size_t pos : 0)() {
-			return length;
+			return renderedWidth;
 		}
 
 		string opSlice(size_t x, size_t y) {
@@ -400,28 +404,65 @@ struct Line {
 
 		void slice(scope void delegate(const(char)[]) sink, size_t x, size_t y) {
 			assert(x < y, format("%d < %d", x, y));
-			assert(x <= length, format(", y=%d), x=%d is outside of string(len: %d)", y, x, length));
-			assert(y <= length, format(", x=%d), y=%d is outside of string(len: %d)", x, y, length));
+			assert(x <= renderWidth, format(", y=%d), x=%d is outside of string(len: %d)", y, x, renderWidth));
+			assert(y <= renderWidth, format(", x=%d), y=%d is outside of string(len: %d)", x, y, renderWidth));
 
 			style.toString(sink);
-			if (x < length) {
+			if (x < renderWidth) {
 				import std.range : take, popFrontN;
 				import std.utf : byDchar;
 				import std.uni : Grapheme;
 				import std.algorithm : each;
 				import std.conv : to;
 
-				R skip(R)(R range, size_t n) {
-					range.popFrontN(n);
-					return range;
+				auto skipCharWidth(R)(R range, size_t width) {
+					import std.range : chain, repeat;
+
+					Character spaceCharacter;
+					spaceCharacter = Character(Grapheme(" "));
+
+					size_t widthCounter;
+					while (widthCounter < width && !range.empty) {
+						Character ch = range.front;
+						widthCounter += ch.renderWidth;
+						range.popFront;
+					}
+
+					if (range.empty)
+						return chain(repeat(spaceCharacter, 0), range);
+
+					size_t offset = widthCounter - width;
+
+					return chain(repeat(spaceCharacter, offset), range);
+				}
+
+				auto takeCharWidth(R)(R range, long width) {
+					struct Take {
+						R range;
+						long width;
+
+						void popFront() {
+							width -= range.front.renderWidth;
+							range.popFront;
+						}
+
+						@property auto front() {
+							return range.front;
+						}
+
+						@property bool empty() {
+							return range.empty || range.front.renderWidth > width;
+						}
+					}
+
+					return Take(range, width);
 				}
 
 				UTFString s = str.save;
 
 				string output;
 				// dfmt off
-				skip(s, x)
-					.take(y - x)
+				takeCharWidth(skipCharWidth(s, x), y - x)
 					.each!((Character g) =>
 						g.grapheme.each!((x) =>
 							output ~= x
@@ -449,6 +490,12 @@ struct Line {
 		return textParts.map!"a.length".sum;
 	}
 
+	@property size_t renderWidth() {
+		import std.algorithm : map, sum;
+
+		return textParts.map!"a.renderWidth".sum;
+	}
+
 	void addChar(size_t idx, dchar ch) {
 		import std.utf : encode;
 
@@ -459,7 +506,7 @@ struct Line {
 	}
 
 	size_t opDollar(size_t pos : 0)() {
-		return length;
+		return renderedWidth;
 	}
 
 	string opSlice(size_t x, size_t y) {
@@ -479,9 +526,9 @@ struct Line {
 			return;
 
 		// Step 1. discard parts until x is a valid location in part
-		while (!parts.empty && x && x < y && x > parts[0].length) {
-			x -= parts[0].length;
-			y -= parts[0].length;
+		while (!parts.empty && x && x < y && x > parts[0].renderWidth) {
+			x -= parts[0].renderWidth;
+			y -= parts[0].renderWidth;
 			parts.popFront;
 		}
 
@@ -494,8 +541,8 @@ struct Line {
 			parts.popFront;
 
 			size_t sizeWant = y - x;
-			if (part.length - x < sizeWant) // Won't find all the requested data in this part
-				sizeWant = part.length - x;
+			if (part.renderWidth - x < sizeWant) // Won't find all the requested data in this part
+				sizeWant = part.renderWidth - x;
 
 			sink(part[x .. sizeWant + x]);
 			x = 0;
@@ -511,8 +558,8 @@ struct Line {
 			parts.popFront;
 
 			size_t sizeWant = y;
-			if (part.length < sizeWant) // Won't find all the requested data in this part
-				sizeWant = part.length;
+			if (part.renderWidth < sizeWant) // Won't find all the requested data in this part
+				sizeWant = part.renderWidth;
 
 			sink(part[x .. sizeWant]);
 
@@ -782,6 +829,14 @@ public:
 			return;
 		}
 
+		{
+			import core.memory : GC;
+			import std.file : write;
+			import std.format : format;
+
+			with (GC.stats)
+				write(_file ~ ".stats", format("usedSize: %.1f KiB, freeSize: %.1f KiB\n", usedSize / 1024.0f, freeSize / 1024.0f));
+		}
 		_addGoodStatus(format("Saved to file: %s", saveFile));
 	}
 
@@ -1129,8 +1184,7 @@ private:
 Editor* editor;
 
 version (unittest) {
-	void main() {
-	}
+
 } else {
 	void main() {
 		Terminal.init();
@@ -1154,6 +1208,7 @@ version (unittest) {
 	}
 }
 
+/*@("Test load file")
 unittest {
 	Terminal.init();
 	scope (exit)
@@ -1163,4 +1218,8 @@ unittest {
 		editor.destroy;
 
 	editor.open("testfile.txt");
-}
+	import std.stdio;
+
+	stderr.writeln("Editor has loaded");
+	assert(0, "derp");
+}*/
