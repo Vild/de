@@ -68,7 +68,9 @@ public static:
 		if (sigaction(SIGWINCH, &sa, null) == -1)
 			die("sigaction");
 
-		version (unittest) {} else _enableRawMode();
+		version (unittest) {
+		} else
+			_enableRawMode();
 		clear();
 		_refreshSize(0);
 	}
@@ -78,7 +80,9 @@ public static:
 		if (called)
 			return;
 		called = true;
-		version (unittest) {} else _disableRawMode();
+		version (unittest) {
+		} else
+			_disableRawMode();
 		printf("\x1b[1mThank you for using DE - Powered by https://dlang.org/\x1b[0m\n");
 	}
 
@@ -92,8 +96,11 @@ public static:
 		exit(errno ? errno : -1);
 	}
 
-	void write(Line line) {
+	void write(Line line, size_t width = size_t.max) {
 		size_t lineLen = line.length;
+		if (lineLen > width)
+			lineLen = width;
+
 		line.slice((str) { _buffer ~= str; }, 0, lineLen);
 
 		if (lineLen < _size[0] && line.renderStyle == Line.RenderStyle.fillWidth) {
@@ -181,7 +188,7 @@ public static:
 			}
 		}
 
-		char c = readCh!true();
+		char c = readCh!false();
 		if (c == '\x1b') {
 			char seq0 = readCh!false();
 			char seq1 = readCh!false();
@@ -786,7 +793,7 @@ public:
 		status.textParts[0].style.fg = Color.brightCyan;
 		status.textParts[0].style.bg = Color.black;
 
-		_addStatus(status, 5.seconds);
+		_addStatus(status);
 
 		foreach (ref bool l; _refreshLines)
 			l = true;
@@ -837,6 +844,7 @@ public:
 			with (GC.stats)
 				write(_file ~ ".stats", format("usedSize: %.1f KiB, freeSize: %.1f KiB\n", usedSize / 1024.0f, freeSize / 1024.0f));
 		}
+		_dirtyFactor = 0;
 		_addGoodStatus(format("Saved to file: %s", saveFile));
 	}
 
@@ -891,6 +899,14 @@ public:
 			_refreshLines.each!((ref x) => x = true);
 		}
 
+		static bool wasMessages = false;
+
+		if (!!wasMessages != !!_statusMessages.length) {
+			_refreshLines[Terminal.size[1] - 3] = true;
+			_refreshLines[Terminal.size[1] - 2] = true;
+		}
+
+		wasMessages = !!_statusMessages.length;
 		if (_statusMessages.length) {
 			import std.range : popFront, front;
 
@@ -898,7 +914,6 @@ public:
 				_statusMessages.popFront;
 				if (_statusMessages.length)
 					_statusDecayAt = MonoTime.currTime + _statusMessages.front.duration;
-
 				_refreshLines[Terminal.size[1] - 3] = true;
 				_refreshLines[Terminal.size[1] - 2] = true;
 			}
@@ -934,11 +949,16 @@ public:
 		Terminal.clearLine();
 
 		string str = format("%s - %d lines %d/%d", _file.baseName, _lines.length, _row + 1, _lines.length);
-		if (str.length > Terminal.size[0])
-			str.length = Terminal.size[0];
+		string dirty = format("dirty: %d", _dirtyFactor);
 
-		Terminal.write(Line(UTFString(), [Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = Color.black; return t; }(), UTFString(str))],
-				Line.RenderStyle.fillWidth));
+		// dfmt off
+		Terminal.write(Line(UTFString(), [
+			Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = Color.black; return t; }(), UTFString(str)),
+			Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = Color.brightBlack; return t; }(), UTFString(" | ")),
+			Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = _dirtyFactor ? Color.red : Color.green; return t; }(), UTFString(dirty)),
+			Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = Color.black; return t; }(), UTFString()),
+		], Line.RenderStyle.fillWidth), Terminal.size[0]);
+		// dfmt on
 
 		if (_showCommandInput) {
 			Terminal.moveTo(0, Terminal.size[1] - _statusHeight + 1);
@@ -978,6 +998,7 @@ public:
 
 		_lines[_row].addChar(_dataIdx, ch);
 		_dataIdx++;
+		_dirtyFactor++;
 
 		_column = _lines[_row].indexToColumn(_dataIdx);
 
@@ -988,6 +1009,8 @@ public:
 		import std.algorithm : min, max;
 		import std.uni : graphemeStride;
 		import std.algorithm : each;
+
+		static size_t quitTimes = 4;
 
 		long screenHeight = Terminal.size[1] - _statusHeight;
 
@@ -1033,7 +1056,12 @@ public:
 			break;
 
 		case CTRL_KEY('q'):
-			return false;
+			if (_dirtyFactor && quitTimes > 0) {
+				_addBadStatus(format("WARNING!!! File has unsaved changes. Press Ctrl-Q %d more times to quit.", quitTimes));
+				quitTimes--;
+				return true;
+			} else
+				return false;
 		case CTRL_KEY('w'):
 			_showLineNumber = !_showLineNumber;
 			refreshScreen();
@@ -1128,11 +1156,14 @@ public:
 			break;
 		}
 
+		quitTimes = 4;
 		return true;
 	}
 
 private:
 	string _file;
+	size_t _dirtyFactor;
+
 	long _dataIdx; // data location
 	long _column, _row; // _column will be the screen location
 	long _scrollX, _scrollY;
