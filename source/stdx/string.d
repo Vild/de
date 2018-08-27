@@ -177,6 +177,27 @@ struct UTFString {
 		_refreshData();
 	}
 
+	void remove(size_t idx) {
+		import std.utf : byDchar;
+		import core.stdc.string : memmove;
+
+		if (idx > _lookupOffset.length)
+			return;
+
+		auto offset = toUTF8Offset(idx);
+		auto r = _utf8Data[offset .. $].byDchar;
+		Character c = decodeGrapheme(r).Character;
+
+		if (idx < _lookupOffset.length - 1 && _utf8Data.length - c.dataSize - offset) {
+			auto to = &_utf8Data[offset];
+			auto from = &_utf8Data[offset + c.dataSize];
+
+			memmove(to, from, _utf8Data.length - c.dataSize - offset);
+		}
+		_utf8Data.length -= c.dataSize;
+		_refreshData();
+	}
+
 	@property Character front() {
 		return _front;
 	}
@@ -265,6 +286,11 @@ struct UTFString {
 
 	@property char[] rawData() {
 		return _utf8Data[toUTF8Offset(_position) .. $];
+	}
+
+	void opOpAssign(string op : "~")(UTFString other) {
+		_utf8Data ~= other._utf8Data;
+		_refreshData();
 	}
 
 }

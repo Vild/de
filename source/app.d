@@ -39,7 +39,7 @@ enum Key : long {
 	unknown = 0,
 
 	return_ = '\r',
-	backspace = '\b',
+	backspace = 0x7f,
 	escape = 0x1b,
 
 	arrowUp = 1000,
@@ -191,7 +191,11 @@ public static:
 		char c = readCh!false();
 		if (c == '\x1b') {
 			char seq0 = readCh!false();
+			if (seq0 == '\0')
+				return cast(Key)c;
 			char seq1 = readCh!false();
+			if (seq1 == '\0')
+				return cast(Key)c;
 
 			if (seq0 == '[') {
 				switch (seq1) {
@@ -210,8 +214,6 @@ public static:
 			} else if (seq0 == 'O') {
 				return arrowKeys(seq1);
 			}
-
-			return cast(Key)'\x1b';
 		}
 		return cast(Key)c;
 	}
@@ -509,6 +511,11 @@ struct Line {
 		char[4] buf;
 		auto len = encode(buf, ch);
 		text.insert(idx, buf[0 .. len]);
+		refresh();
+	}
+
+	void removeChar(size_t idx) {
+		text.remove(idx);
 		refresh();
 	}
 
@@ -1005,6 +1012,41 @@ public:
 		_refreshLines[_row - _scrollY] = true;
 	}
 
+	enum RemoveDirection {
+		left = -1,
+		right = 0
+	}
+
+	void removeChar(RemoveDirection dir) {
+		import std.algorithm : remove;
+
+		if (_dataIdx > _lines[_row].text.length)
+			_dataIdx = _lines[_row].text.length;
+
+		if (dir == RemoveDirection.left && _dataIdx == 0) {
+			if (_row <= 0)
+				return;
+			_dataIdx = _lines[_row - 1].text.length;
+			_lines[_row - 1].text ~= _lines[_row].text;
+			_lines = _lines.remove(_row);
+			_row--;
+			_lines[_row].refresh;
+			_dirtyFactor++;
+		} else if (dir == RemoveDirection.right && _dataIdx == _lines[_row].text.length) {
+			if (_row >= _lines.length - 1)
+				return;
+
+			_lines[_row].text ~= _lines[_row + 1].text;
+			_lines = _lines.remove(_row + 1);
+			_lines[_row].refresh;
+			_dirtyFactor++;
+		} else {
+			_lines[_row].removeChar(_dataIdx + dir);
+			_dataIdx += dir;
+			_dirtyFactor++;
+		}
+	}
+
 	bool processKeypress() {
 		import std.algorithm : min, max;
 		import std.uni : graphemeStride;
@@ -1040,15 +1082,19 @@ public:
 		case Key.return_:
 			break;
 
-			//case CTRL_KEY('h'):
+		case CTRL_KEY('h'):
 		case Key.backspace:
+			removeChar(RemoveDirection.left);
+			updateScreen();
 			break;
 
 		case Key.delete_:
+			removeChar(RemoveDirection.right);
+			updateScreen();
 			break;
 
 		case CTRL_KEY('l'):
-			refreshScreen();
+			updateScreen();
 			break;
 
 		case Key.escape:
