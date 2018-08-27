@@ -30,3 +30,4 @@ dub.selections.json
 
 # Application dirt
 *.testSave
+*.stats

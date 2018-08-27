@@ -1047,6 +1047,22 @@ public:
 		}
 	}
 
+	void newLine() {
+		auto text = _lines[_row].text;
+
+		if (_dataIdx > _lines[_row].text.length)
+			_dataIdx = _lines[_row].text.length;
+
+		_lines[_row].text = UTFString(text[0 .. _dataIdx]);
+		_lines = _lines[0 .. _row + 1] ~ Line(UTFString(text[_dataIdx .. $])) ~ _lines[_row + 1 .. $];
+		_lines[_row].refresh;
+		_lines[_row + 1].refresh;
+		_dataIdx = 0;
+		_row++;
+
+		_dirtyFactor++;
+	}
+
 	bool processKeypress() {
 		import std.algorithm : min, max;
 		import std.uni : graphemeStride;
@@ -1080,21 +1096,23 @@ public:
 			break;
 
 		case Key.return_:
+			newLine();
+			applyScroll();
 			break;
 
 		case CTRL_KEY('h'):
 		case Key.backspace:
 			removeChar(RemoveDirection.left);
-			updateScreen();
+			applyScroll();
 			break;
 
 		case Key.delete_:
 			removeChar(RemoveDirection.right);
-			updateScreen();
+			applyScroll();
 			break;
 
 		case CTRL_KEY('l'):
-			updateScreen();
+			applyScroll();
 			break;
 
 		case Key.escape:
