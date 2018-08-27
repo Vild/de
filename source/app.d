@@ -35,6 +35,12 @@ static:
 	wchar spaceChar = '⬩';
 }
 
+bool isTextChar(Key k) {
+	import core.stdc.ctype : iscntrl;
+
+	return !!iscntrl(cast(int)k);
+}
+
 enum Key : long {
 	unknown = 0,
 
@@ -42,7 +48,8 @@ enum Key : long {
 	backspace = 0x7f,
 	escape = 0x1b,
 
-	arrowUp = 1000,
+	lettersEnd = 0xFFFF_0000,
+	arrowUp,
 	arrowDown,
 	arrowLeft,
 	arrowRight,
@@ -738,12 +745,13 @@ struct Editor {
 public:
 	void open(string file) {
 		import std.file : readText;
+		import std.path : absolutePath;
 		import std.string : splitLines;
 		import std.array : array;
 		import std.algorithm : map, each, copy;
 		import core.memory : GC;
 
-		_file = file;
+		_file = absolutePath(file);
 
 		Terminal.moveTo(0, 0);
 		Terminal.write("Loading ");
@@ -795,7 +803,7 @@ public:
 		Line status;
 		status.textParts.length = 1;
 		status.textParts[0].str = UTFString(
-				"Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Random status message | Ctrl+S Save |");
+				"Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Save as | Ctrl+S Save |");
 		status.textParts[0].style.bright = true;
 		status.textParts[0].style.fg = Color.brightCyan;
 		status.textParts[0].style.bg = Color.black;
@@ -808,38 +816,36 @@ public:
 		drawRows();
 	}
 
-	void save() {
+	void save(string file) {
 		import std.algorithm : map, joiner;
 		import std.range : chain;
 		import std.conv : octal, to;
 		import std.string : toStringz, fromStringz;
 		import core.stdc.string : strerror;
 
-		if (!_file.length) {
-			_addBadStatus("Not file to save to!");
+		if (!file.length) {
+			_addBadStatus("No file to save to!");
 			return;
 		}
-
-		string saveFile = _file ~ ".testSave";
 
 		string buf = _lines.map!((ref Line l) => l.text.rawData).joiner("\n").to!string ~ "\n";
 		scope (exit)
 			buf.destroy;
 
-		int fd = .open(saveFile.toStringz, O_RDWR | O_CREAT, octal!644);
+		int fd = .open(file.toStringz, O_RDWR | O_CREAT, octal!644);
 		if (fd == -1) {
-			_addBadStatus(format("Could not save file: %s. Error: %s", saveFile, strerror(errno).fromStringz));
+			_addBadStatus(format("Could not save file: %s. Error: %s", file, strerror(errno).fromStringz));
 			return;
 		}
 		scope (exit)
 			close(fd);
 
 		if (ftruncate(fd, cast(long)buf.length) == -1) {
-			_addBadStatus(format("Could not save file: %s. Error: %s", saveFile, strerror(errno).fromStringz));
+			_addBadStatus(format("Could not save file: %s. Error: %s", file, strerror(errno).fromStringz));
 			return;
 		}
 		if (write(fd, buf.ptr, cast(long)buf.length) != buf.length) {
-			_addBadStatus(format("Could not save file: %s. Error: %s", saveFile, strerror(errno).fromStringz));
+			_addBadStatus(format("Could not save file: %s. Error: %s", file, strerror(errno).fromStringz));
 			return;
 		}
 
@@ -849,10 +855,10 @@ public:
 			import std.format : format;
 
 			with (GC.stats)
-				write(_file ~ ".stats", format("usedSize: %.1f KiB, freeSize: %.1f KiB\n", usedSize / 1024.0f, freeSize / 1024.0f));
+				write(file ~ ".stats", format("usedSize: %.1f KiB, freeSize: %.1f KiB\n", usedSize / 1024.0f, freeSize / 1024.0f));
 		}
 		_dirtyFactor = 0;
-		_addGoodStatus(format("Saved to file: %s", saveFile));
+		_addGoodStatus(format("Saved to file: %s", file));
 	}
 
 	void drawRows() {
@@ -970,8 +976,7 @@ public:
 		if (_showCommandInput) {
 			Terminal.moveTo(0, Terminal.size[1] - _statusHeight + 1);
 			Terminal.clearLine();
-			Terminal.write(Line(UTFString(), [Line.Part(() { TextStyle t; t.bright = true; t.fg = Color.yellow; return t; }(),
-					UTFString("<INPUT HERE>"))]));
+			Terminal.write(_commandLine);
 		} else if (_statusMessages.length) {
 			import std.range : front;
 
@@ -1063,6 +1068,72 @@ public:
 		_dirtyFactor++;
 	}
 
+	bool getStringInput(string question, ref string answer) {
+		bool oldSCI = _showCommandInput;
+		scope (exit) {
+			_showCommandInput = oldSCI;
+			_refreshLines[Terminal.size[1] - 2] = true;
+			_refreshLines[Terminal.size[1] - 1] = true;
+			refreshScreen();
+		}
+		_showCommandInput = true;
+		_commandLine.textParts.length = 2;
+		_commandLine.textParts[0] = Line.Part(() { TextStyle t; t.fg = Color.cyan; return t; }(), UTFString(question ~ ": "));
+		_commandLine.textParts[1] = Line.Part(() { TextStyle t; t.fg = Color.white; return t; }(), UTFString(answer));
+
+		long idx = answer.length;
+		while (true) {
+			_refreshLines[Terminal.size[1] - 2] = true;
+			_refreshLines[Terminal.size[1] - 1] = true;
+			refreshScreen();
+			Terminal.moveTo(idx + question.length + 2, Terminal.size[1] - 1);
+			Terminal.flush();
+
+			Key k = Terminal.read();
+
+			if (k == Key.unknown)
+				continue;
+			switch (k) {
+			case Key.return_:
+				answer = _commandLine.textParts[1].str.rawData.idup;
+				return true;
+			case Key.arrowLeft:
+				if (idx > 0)
+					idx--;
+				break;
+			case Key.arrowRight:
+				if (idx < answer.length)
+					idx++;
+				break;
+
+			case CTRL_KEY('q'):
+			case Key.escape:
+				return false;
+
+			case Key.delete_:
+			case Key.backspace:
+			case CTRL_KEY('h'):
+				auto dir = k == Key.backspace ? RemoveDirection.left : RemoveDirection.right;
+				if (dir == RemoveDirection.right || idx > 0) {
+					idx += dir;
+					_commandLine.textParts[1].str.remove(idx);
+				}
+				break;
+
+			default:
+				if (k.isTextChar && k <= Key.lettersEnd) {
+					import std.utf : encode;
+
+					char[4] buf;
+					auto len = encode(buf, cast(dchar)k);
+					_commandLine.textParts[1].str.insert(idx, buf[0 .. len]);
+					idx++;
+				}
+				break;
+			}
+		}
+	}
+
 	bool processKeypress() {
 		import std.algorithm : min, max;
 		import std.uni : graphemeStride;
@@ -1092,7 +1163,8 @@ public:
 			return true;
 		switch (k) {
 		default:
-			addChar(cast(dchar)k);
+			if (k.isTextChar && k <= Key.lettersEnd)
+				addChar(cast(dchar)k);
 			break;
 
 		case Key.return_:
@@ -1136,25 +1208,20 @@ public:
 			_refreshLines[Terminal.size[1] - 2] = true;
 			break;
 
-		case CTRL_KEY('r'): {
-				import std.traits : EnumMembers;
-
-				enum colors = [EnumMembers!Color];
-
-				Line status;
-				status.textParts.length = 1;
-				status.textParts[0].str = UTFString(format("[%s] status message", MonoTime.currTime));
-				status.textParts[0].style.overscore = true;
-				status.textParts[0].style.underscore = true;
-				status.textParts[0].style.italic = true;
-				status.textParts[0].style.fg = colors[rand() % colors.length];
-				status.textParts[0].style.bg = Color.black;
-				_addStatus(status);
-			}
-			break;
-
+		case CTRL_KEY('r'):
 		case CTRL_KEY('s'):
-			save();
+			if (!_file || k == CTRL_KEY('r')) {
+				import std.file : getcwd;
+				import std.path : absolutePath;
+
+				if (!_file)
+					_file = getcwd() ~ "/";
+				if (!getStringInput("Filepath", _file))
+					break;
+
+				_file = absolutePath(_file);
+			}
+			save(_file);
 			break;
 
 		case Key.arrowUp:
@@ -1237,6 +1304,7 @@ private:
 	ulong _lineNumberWidth = 5;
 
 	bool _showCommandInput = false;
+	Line _commandLine;
 	ulong _statusHeight = 1;
 
 	bool[] _refreshLines;
@@ -1276,12 +1344,10 @@ private:
 	}
 }
 
-Editor* editor;
-
 version (unittest) {
 
 } else {
-	void main() {
+	void main(string[] args) {
 		Terminal.init();
 		scope (exit)
 			Terminal.destroy;
@@ -1289,7 +1355,7 @@ version (unittest) {
 		scope (exit)
 			editor.destroy;
 
-		editor.open("testfile.txt");
+		editor.open(args.length > 1 ? args[1] : "testfile.txt");
 
 		while (true) {
 			editor.refreshScreen();

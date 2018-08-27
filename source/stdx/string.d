@@ -155,24 +155,33 @@ struct UTFString {
 		return idx;
 	}+/
 
-	void insert(C : dchar)(size_t idx, C[] chars) {
+	void insert(R)(size_t idx, R chars) if (isSomeChar!(ElementType!R)) {
 		import std.utf : byChar;
 		import std.utf : codeLength;
 		import core.stdc.string : memmove;
 
+		char[32] buf;
+
 		auto offset = toUTF8Offset(idx);
 
+		size_t len;
 		auto r = chars.byChar;
+		while (!r.empty) {
+			buf[len++] = r.front;
+			r.popFront;
+		}
 
-		_utf8Data.length += r.length;
-		if (offset + r.length < _utf8Data.length) {
-			auto to = &_utf8Data[offset + r.length];
+		assert(len);
+
+		_utf8Data.length += len;
+		if (offset + len < _utf8Data.length) {
+			auto to = &_utf8Data[offset + len];
 			auto from = &_utf8Data[offset];
 
-			memmove(to, from, _utf8Data.length - r.length - offset);
+			memmove(to, from, _utf8Data.length - len - offset);
 		}
-		foreach (ch; r)
-			_utf8Data[offset++] = ch;
+
+		memmove(&_utf8Data[offset], &buf[0], len);
 
 		_refreshData();
 	}
