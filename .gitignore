@@ -31,3 +31,9 @@ dub.selections.json
 # Application dirt
 *.testSave
 *.stats
+
+# Downloaded files
+EastAsianWidth.txt
+
+# Generated files
+views/getCharDisplayWidth.d

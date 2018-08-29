@@ -2,12 +2,6 @@ module stdx.string;
 
 import std.traits : isNumeric;
 
-import derelict.utf8proc.utf8proc;
-
-shared static this() {
-	DerelictUTF8Proc.load();
-}
-
 char[] numberToString(T)(char[] buf, T number, size_t base = 10) if (isNumeric!T) {
 	static string chars = "0123456789ABCDEF";
 	assert(base <= chars.length);
@@ -26,8 +20,12 @@ char[] numberToString(T)(char[] buf, T number, size_t base = 10) if (isNumeric!T
 	return buf[buf.length - count .. $];
 }
 
+private {
+	mixin(import("getCharDisplayWidth.d"));
+}
+
 int getCharSize(dchar ch) {
-	return utf8proc_charwidth(ch);
+	return getCharDisplayWidth(ch);
 }
 
 import std.traits;
@@ -35,12 +33,13 @@ import std.range : ElementType;
 
 size_t getStringWidth(String)(String str) if (isSomeChar!(ElementType!String)) {
 	import std.uni;
+	import std.format;
 
 	size_t len;
 
 	foreach (Grapheme grapheme; str.byGrapheme) {
 		debug foreach (ch; grapheme[][1 .. $])
-			assert(ch.getCharSize == 0);
+			assert(ch.getCharSize == 0, format("'%X'.getCharSize should be zero, it is: %d", ch, ch.getCharSize));
 
 		len += grapheme[0].getCharSize;
 	}
@@ -301,5 +300,4 @@ struct UTFString {
 		_utf8Data ~= other._utf8Data;
 		_refreshData();
 	}
-
 }

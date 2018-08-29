@@ -38,7 +38,7 @@ static:
 bool isTextChar(Key k) {
 	import core.stdc.ctype : iscntrl;
 
-	return !!iscntrl(cast(int)k);
+	return !iscntrl(cast(int)k);
 }
 
 enum Key : long {
