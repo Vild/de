@@ -25,7 +25,7 @@ alias CharRangeMatch = AliasSeq!(CharRange, Width);
 void main() {
 	import std.file : write, exists;
 
-	auto regex = ctRegex!`^(\w{4})(?:\.\.(\w{4}))?;(A|F|H|Na|N|W)`;
+	auto regex = ctRegex!`^(\w*)(?:\.\.(\w*))?;(A|F|H|Na|N|W)`;
 
 	string spin = "|/-\\";
 	size_t count;
@@ -37,31 +37,32 @@ void main() {
 	File data = File("EastAsianWidth.txt", "r");
 
 	// dfmt off
-	data
+	auto range = data
 		.byLine
 		.filter!(l => l.length && l[0] != '#')
 		.map!(l => l.matchFirst(regex))
 		.filter!(c => !c.empty)
-		.filter!(c => c[3].to!Width & (Width.F | Width.W))
-		.each!((ref range) => {
-				uint from = range[1].to!uint(16);
-				uint to = range[2].to!uint(16).ifThrown(from);
-
-				foreach (c; from .. to + 1)
-					widthMap[c] = 2;
-			}
-		);
+		.filter!(c => c[3].to!Width & (Width.F | Width.W));
 	// dfmt on
+
+	foreach (charRange; range) {
+		uint from = charRange[1].to!uint(16);
+		uint to = charRange[2].empty ? from : charRange[2].to!uint(16);
+		foreach (c; from .. to + 1)
+			widthMap[c] = 2;
+	}
 
 	// dfmt off
-	foreach (ch; (
-			unicode.Grapheme_extend |
-			unicode.hangulSyllableType("V") |
-			unicode.hangulSyllableType("T") | unicode.Default_Ignorable_Code_Point
-		).byCodepoint) {
-		widthMap[ch] = 0;
-	}
+	auto codepointRange = (
+		unicode.Grapheme_extend |
+		unicode.hangulSyllableType("V") |
+		unicode.hangulSyllableType("T") |
+		unicode.Default_Ignorable_Code_Point
+	).byCodepoint;
 	// dfmt on
+
+	foreach (ch; codepointRange)
+		widthMap[ch] = 0;
 
 	File output = File("views/getCharDisplayWidth.d", "w");
 	output.write(q{
