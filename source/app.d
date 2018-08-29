@@ -36,9 +36,9 @@ static:
 }
 
 bool isTextChar(Key k) {
-	import core.stdc.ctype : iscntrl;
+	import std.uni : isControl;
 
-	return !iscntrl(cast(int)k);
+	return !isControl(cast(dchar)k);
 }
 
 enum Key : long {
@@ -141,20 +141,35 @@ public static:
 	}
 
 	Key read() {
-		char readCh(bool waitForChar)() {
-			char c = '\0';
-			static if (waitForChar) {
-				long nread;
-				while ((nread = .read(STDIN_FILENO, &c, 1)) != 1) {
-					if (nread == -1 && errno != EAGAIN && errno != EINTR)
-						Terminal.die("read");
-				}
-			} else if (.read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN && errno != EINTR)
+		static dchar[] unprocessChars;
+		dchar readCh() {
+			import std.utf;
+			import std.typecons;
+
+			if (unprocessChars.length) {
+				dchar ret = unprocessChars[0];
+				unprocessChars = unprocessChars[1 .. $];
+				return ret;
+			}
+
+			static char[] makeDchar;
+
+			char[1] buf; // TODO: research if this could be like 8, without blocking a lot
+			auto len = .read(STDIN_FILENO, buf.ptr, buf.length);
+			if (len == -1 && errno != EAGAIN && errno != EINTR)
 				Terminal.die("read");
-			return c;
+
+			if (len > 0)
+				foreach (ch; buf[0 .. len])
+					makeDchar ~= ch;
+
+			if (makeDchar.length && makeDchar.length >= makeDchar.stride())
+				return makeDchar.decodeFront!(Yes.useReplacementDchar);
+			else
+				return Key.unknown;
 		}
 
-		Key actionKeys(char c) {
+		Key actionKeys(dchar c) {
 			switch (c) {
 			case '3':
 				return Key.delete_;
@@ -176,7 +191,7 @@ public static:
 			}
 		}
 
-		Key arrowKeys(char c) {
+		Key arrowKeys(dchar c) {
 			switch (c) {
 			case 'A':
 				return Key.arrowUp;
@@ -195,19 +210,22 @@ public static:
 			}
 		}
 
-		char c = readCh!false();
+		dchar c = readCh();
 		if (c == '\x1b') {
-			char seq0 = readCh!false();
+			dchar seq0 = readCh();
 			if (seq0 == '\0')
 				return cast(Key)c;
-			char seq1 = readCh!false();
-			if (seq1 == '\0')
+			dchar seq1 = readCh();
+			if (seq1 == '\0') {
+				unprocessChars ~= seq1;
 				return cast(Key)c;
+			}
 
+			dchar seq2 = '\0';
 			if (seq0 == '[') {
 				switch (seq1) {
 				case '0': .. case '9':
-					char seq2 = readCh!false();
+					seq2 = readCh();
 					if (seq2 != '~')
 						break;
 					return actionKeys(seq1);
@@ -221,6 +239,11 @@ public static:
 			} else if (seq0 == 'O') {
 				return arrowKeys(seq1);
 			}
+
+			unprocessChars ~= seq0;
+			unprocessChars ~= seq1;
+			if (seq2 != '\0')
+				unprocessChars ~= seq2;
 		}
 		return cast(Key)c;
 	}
