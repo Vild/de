@@ -1,6 +1,7 @@
-module stdx.string;
+module de.utfstring;
 
-import std.traits : isNumeric;
+import std.traits : isNumeric, isSomeChar;
+import std.range : ElementType;
 
 char[] numberToString(T)(char[] buf, T number, size_t base = 10) if (isNumeric!T) {
 	static string chars = "0123456789ABCDEF";
@@ -27,9 +28,6 @@ private {
 int getCharSize(dchar ch) {
 	return getCharDisplayWidth(ch);
 }
-
-import std.traits;
-import std.range : ElementType;
 
 size_t getStringWidth(String)(String str) if (isSomeChar!(ElementType!String)) {
 	import std.uni;
