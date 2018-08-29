@@ -1264,7 +1264,8 @@ public:
 		case Key.arrowLeft:
 			if (_dataIdx > _lines[_row].text.length)
 				_dataIdx = _lines[_row].text.length;
-			else if (_dataIdx > 0)
+
+			if (_dataIdx > 0)
 				_dataIdx--;
 			else if (_row > 0) {
 				_row--;
