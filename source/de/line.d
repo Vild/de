@@ -287,7 +287,7 @@ struct Line {
 				while (isTab(ch));
 
 				const size_t numberOfSpaces = (Config.tabSize) - (idx % Config.tabSize) + (Config.tabSize * (tabCount - 1));
-				wchar[] buf = new wchar[numberOfSpaces];
+				dchar[] buf = new dchar[numberOfSpaces];
 				scope (exit)
 					buf.destroy;
 				foreach (i, ref c; buf)

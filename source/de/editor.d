@@ -3,7 +3,7 @@ module de.editor;
 import de.terminal : Terminal, Key, Color;
 import de.line : Line, TextStyle;
 import de.utfstring : UTFString;
-import de.build : Build;
+import de.build : Build, Config;
 
 import std.format : format;
 
@@ -150,8 +150,14 @@ public:
 			Terminal.moveTo(0, y);
 			Terminal.write("\x1b[49m");
 			Terminal.clearLine();
-			if (_showLineNumber)
-				Terminal.write(format("\x1b[%d;%dm %*d \x1b[0m", Color.white, Color.black + 10, _lineNumberWidth - 2, row + 1));
+			if (_showLineNumber) {
+				import de.line : TextStyle;
+
+				TextStyle number, line;
+				number.bright = true;
+				line.dim = true;
+				Terminal.write(format("%s %*d \x1b[0m%s%c\x1b[0m ", number, _lineNumberWidth - _lineNumberDesignWidth, row + 1, line, Config.lineNumberSeparator));
+			}
 
 			if (row < 0 || row >= _lines.length) {
 				Terminal.write("\x1b[90m~\x1b[0m");
@@ -216,16 +222,18 @@ public:
 		Terminal.cursorVisibility = false;
 
 		if (_showLineNumber) {
+			import std.algorithm : min, max;
+
 			ulong newWidth;
 			if (_lines.length) {
 				import std.math : log10;
-				import std.algorithm : min;
 
 				newWidth = cast(long)log10(min(_scrollY + Terminal.size[1] - _statusHeight, _lines.length)) + 1;
 			} else
 				newWidth = 1;
 
-			newWidth += 2;
+			newWidth += _lineNumberDesignWidth;
+			newWidth = newWidth.max(_lineNumberMinWidth + _lineNumberDesignWidth);
 
 			if (newWidth > _lineNumberWidth || !_lineNumberWidth)
 				_lineNumberWidth = newWidth;
@@ -246,7 +254,7 @@ public:
 		// dfmt off
 		Terminal.write(Line(UTFString(), [
 			Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = Color.black; return t; }(), UTFString(str)),
-			Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = Color.brightBlack; return t; }(), UTFString(" | ")),
+			Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = Color.brightBlack; return t; }(), UTFString(" │ ")),
 			Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = _dirtyFactor ? Color.red : Color.green; return t; }(), UTFString(dirty)),
 			Line.Part(() { TextStyle t; t.bg = t.fg; t.fg = Color.black; return t; }(), UTFString()),
 		], Line.RenderStyle.fillWidth), Terminal.size[0]);
@@ -582,6 +590,8 @@ private:
 
 	bool _showLineNumber = true;
 	ulong _lineNumberWidth = 5;
+	enum ulong _lineNumberMinWidth = 3;
+	enum ulong _lineNumberDesignWidth = 4;
 
 	bool _showCommandInput = false;
 	Line _commandLine;
