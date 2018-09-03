@@ -6,6 +6,8 @@ license "MPLv2"
 
 targetPath "bin"
 
+dependency "libdparse" version="~>0.9.4"
+
 preGenerateCommands "[ -e 'views/getCharDisplayWidth.d' ] || rdmd extractCharWidths.d"
 
 configuration "de" {

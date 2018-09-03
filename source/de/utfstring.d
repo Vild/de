@@ -132,7 +132,7 @@ struct UTFString {
 	}
 
 	private size_t toUTF8Offset(size_t idx) {
-		return _lookupOffset[idx];
+		return _lookupOffset.length ? _lookupOffset[idx] : 0;
 	}
 
 	/+private size_t fromUTF8Offset(size_t offset) {

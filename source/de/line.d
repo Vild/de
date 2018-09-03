@@ -331,7 +331,8 @@ struct Line {
 
 				textParts ~= part;
 			} else {
-				Part part;
+				import de.styler;
+				import std.array : array;
 
 				size_t charCount;
 				auto textStart = str.save;
@@ -347,12 +348,11 @@ struct Line {
 				}
 				while (!isTab(ch) && !isSpace(ch));
 
-				part.str = UTFString(textStart[0 .. charCount]);
-
-				wasSpace = false;
 				wasChar = true;
+				wasSpace = false;
 
-				textParts ~= part;
+				foreach (part; Styler.styleTextIntoParts(UTFString(textStart[0 .. charCount])))
+					textParts ~= part;
 			}
 		}
 	}

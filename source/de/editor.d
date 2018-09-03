@@ -44,7 +44,7 @@ public:
 
 		size_t idx;
 
-		_lines.length = lines.length;
+		_lines.length = lines.length + 1;
 
 		lines.map!((x) {
 			Terminal.moveTo(0, 1);
@@ -586,7 +586,7 @@ private:
 	long _dataIdx; // data location
 	long _column, _row; // _column will be the screen location
 	long _scrollX, _scrollY;
-	Line[] _lines;
+	Line[] _lines = [Line()];
 
 	bool _showLineNumber = true;
 	ulong _lineNumberWidth = 5;
