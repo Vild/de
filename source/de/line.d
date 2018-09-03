@@ -337,7 +337,13 @@ struct Line {
 				size_t charCount;
 				auto textStart = str.save;
 
+				dchar isString;
+
 				do {
+					if (isString == ch[0])
+						isString = dchar.init;
+					else if (ch[0] == '"' || ch[0] == '\'' || ch[0] == '`')
+						isString = ch[0];
 					charCount++;
 					idx++;
 
@@ -346,7 +352,7 @@ struct Line {
 						break;
 					ch = str.front;
 				}
-				while (!isTab(ch) && !isSpace(ch));
+				while ((!isTab(ch) && !isSpace(ch)) || isString != dchar.init);
 
 				wasChar = true;
 				wasSpace = false;
