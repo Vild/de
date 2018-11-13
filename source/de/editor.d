@@ -82,7 +82,7 @@ public:
 		Line status;
 		status.textParts.length = 1;
 		status.textParts[0].str = UTFString(
-				"Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Save as | Ctrl+S Save |");
+				"Welcome to DE! | Ctrl+Q - Quit | Ctrl+W - Hide/Show line numbers | Ctrl+E Input command | Ctrl+R Save as | Ctrl+S Save | Ctrl+F Search |");
 		status.textParts[0].style.bright = true;
 		status.textParts[0].style.fg = Color.brightCyan;
 		status.textParts[0].style.bg = Color.black;
@@ -156,7 +156,8 @@ public:
 				TextStyle number, line;
 				number.bright = true;
 				line.dim = true;
-				Terminal.write(format("%s %*d \x1b[0m%s%c\x1b[0m ", number, _lineNumberWidth - _lineNumberDesignWidth, row + 1, line, Config.lineNumberSeparator));
+				Terminal.write(format("%s %*d \x1b[0m%s%c\x1b[0m ", number, _lineNumberWidth - _lineNumberDesignWidth, row + 1,
+						line, Config.lineNumberSeparator));
 			}
 
 			if (row < 0 || row >= _lines.length) {
@@ -356,6 +357,13 @@ public:
 	}
 
 	bool getStringInput(string question, ref string answer) {
+		void dummy(string query, Key ch) {
+		}
+
+		return getStringInput(question, answer, &dummy);
+	}
+
+	bool getStringInput(string question, ref string answer, void delegate(string query, Key ch) callback) {
 		bool oldSCI = _showCommandInput;
 		scope (exit) {
 			_showCommandInput = oldSCI;
@@ -380,6 +388,7 @@ public:
 
 			if (k == Key.unknown)
 				continue;
+			callback(cast(string)_commandLine.textParts[1].str.rawData, k);
 			switch (k) {
 			case Key.return_:
 				answer = _commandLine.textParts[1].str.rawData.idup;
@@ -511,21 +520,59 @@ public:
 			save(_file);
 			break;
 
+		case CTRL_KEY('f'):
+			string query;
+			long oldRow = _row;
+			long oldDataIdx = _dataIdx;
+			long oldScrollX = _scrollX;
+			long oldScrollY = _scrollY;
+			if (!getStringInput("Search (ESC to cancel)", query, (string str, Key key) {
+					foreach (rowIdx, ref Line line; _lines) {
+						import std.algorithm : countUntil;
+
+						ptrdiff_t idx = line.text.rawData.countUntil(str);
+						if (idx < 0)
+							continue;
+
+						_row = rowIdx;
+
+						_dataIdx = _lines[_row].indexToColumn(idx);
+						_scrollY = long.max;
+						applyScroll();
+						break;
+					}
+				}) || !query.length) {
+				_row = oldRow;
+				_dataIdx = oldDataIdx;
+				_scrollX = oldScrollX;
+				_scrollY = oldScrollY;
+				applyScroll();
+			}
+			break;
+
 		case Key.arrowUp:
+		case Key.arrowCtrlUp:
+			const diff = k == Key.arrowUp ? 1 : 5;
 			if (_row > 0) {
-				_row--;
+				_row = max(_row - diff, 0);
+
 				_dataIdx = _lines[_row].columnToIndex(_column);
 				applyScroll();
 			}
 			break;
+
 		case Key.arrowDown:
+		case Key.arrowCtrlDown:
+			const diff = k == Key.arrowDown ? 1 : 5;
 			if (_row < _lines.length - 1) {
-				_row++;
+				_row = min(_row + diff, _lines.length - 1);
 				_dataIdx = _lines[_row].columnToIndex(_column);
 				applyScroll();
 			}
 			break;
+
 		case Key.arrowLeft:
+		case Key.arrowCtrlLeft:
 			if (_dataIdx > _lines[_row].text.length)
 				_dataIdx = _lines[_row].text.length;
 
@@ -540,6 +587,7 @@ public:
 			applyScroll();
 			break;
 		case Key.arrowRight:
+		case Key.arrowCtrlRight:
 			if (_dataIdx < _lines[_row].text.length)
 				_dataIdx++;
 			else if (_row < _lines.length - 1) {

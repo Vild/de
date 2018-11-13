@@ -1,49 +1,68 @@
 module de.styler;
 
-import dparse.lexer;
-
 import de.line;
 import de.utfstring;
 import de.build;
 
-shared static this() {
-	Styler.sc = StringCache(StringCache.defaultBucketCount);
-}
+private enum errorToken = 0;
 
 struct Styler {
 public static:
 	Line.Part[] styleTextIntoParts(UTFString str) {
+
 		Line.Part[] output;
 		if (!str.length) {
 			output ~= Line.Part(TextStyle(), str);
 			return output;
 		}
-		foreach (tok; str.rawData.byToken(lc, &sc)) {
-			Line.Part p;
-			p.str = tok.text.length ? UTFString(tok.text) : UTFString(.str(tok.type));
-			if (tok.type.isBasicType) {
-				p.style = Config.basicTypeStyle;
-			} else if (tok.type.isNumberLiteral) {
-				p.style = Config.numbericStyle;
-			} else if (tok.type.isOperator) {
-				p.style = Config.operatorStyle;
-			} else if (tok.type.isKeyword) {
-				p.style = Config.keywordStyle;
-			} else if (tok.type.isStringLiteral) {
-				p.style = Config.stringLiteralStyle;
-			} else if (tok.type.isProtection) {
-				p.style = Config.protectionStyle;
-			} else if (tok.type.isSpecialToken) {
-				p.style = Config.specialTokenStyle;
-			} else if (tok.type.isLiteral) {
-				p.style = Config.literalStyle;
+
+		/*p.style = Config.basicTypeStyle;
+p.style = Config.numbericStyle;
+p.style = Config.operatorStyle;
+p.style = Config.keywordStyle;
+p.style = Config.stringLiteralStyle;
+p.style = Config.protectionStyle;
+p.style = Config.specialTokenStyle;
+p.style = Config.literalStyle;*/
+
+		TextStyle[] styles = [
+			TextStyle(), Config.basicTypeStyle, Config.numbericStyle, Config.operatorStyle, Config.keywordStyle,
+			Config.stringLiteralStyle, Config.protectionStyle, Config.specialTokenStyle, Config.literalStyle
+		];
+
+		ptrdiff_t startIdx;
+		size_t styleIdx;
+		bool continueLoop = true;
+		while (continueLoop) {
+			import std.string : indexOfAny;
+
+			ptrdiff_t idx = str.rawData.indexOfAny(" ()'\",.;\t!`{}[]*+-/\\", startIdx);
+			if (startIdx == idx)
+				idx++;
+
+			if (idx == -1) {
+				continueLoop = false;
+				idx = str.rawData.length;
 			}
-			output ~= p;
+			Line.Part p;
+			p.str = UTFString(str.rawData[startIdx .. idx]);
+
+			startIdx = idx;
+			p.style = styles[styleIdx];
+			if (p.str.length) {
+				output ~= p;
+				styleIdx = (styleIdx + 1) % styles.length;
+			}
 		}
 		return output;
 	}
+}
 
-	LexerConfig lc = {stringBehavior:
-	StringBehavior.source, whitespaceBehavior : WhitespaceBehavior.include};
-	StringCache sc = void;
+pragma(lib, "libSDL2.so");
+
+private extern extern (C) void SDL_ShowSimpleMessageBox(uint flags, const(char)* title, const(char)* message, void* null_);
+void msgbox(string msg) {
+	import std.string : toStringz;
+
+	SDL_ShowSimpleMessageBox(0, "DE", msg.toStringz, null);
 }

@@ -29,6 +29,11 @@ enum Key : long {
 	arrowLeft,
 	arrowRight,
 
+	arrowCtrlUp,
+	arrowCtrlDown,
+	arrowCtrlLeft,
+	arrowCtrlRight,
+
 	delete_,
 	home,
 	end,
@@ -217,13 +222,34 @@ public static:
 			}
 
 			dchar seq2 = '\0';
+			dchar seq3 = '\0';
+			dchar seq4 = '\0';
 			if (seq0 == '[') {
 				switch (seq1) {
 				case '0': .. case '9':
 					seq2 = readCh();
-					if (seq2 != '~')
+					if (seq2 == '~')
+						return actionKeys(seq1);
+					else if (seq1 == '1' && seq2 == ';') {
+						seq3 = readCh();
+						seq4 = readCh();
+						if (seq3 != '5')
+							break;
+						switch (seq4) {
+						case 'A':
+							return Key.arrowCtrlUp;
+						case 'B':
+							return Key.arrowCtrlDown;
+						case 'C':
+							return Key.arrowCtrlRight;
+						case 'D':
+							return Key.arrowCtrlLeft;
+
+						default:
+							break;
+						}
+					} else
 						break;
-					return actionKeys(seq1);
 				case 'A': .. case 'D':
 				case 'H':
 				case 'F':
@@ -239,6 +265,10 @@ public static:
 			unprocessChars ~= seq1;
 			if (seq2 != '\0')
 				unprocessChars ~= seq2;
+			if (seq3 != '\0')
+				unprocessChars ~= seq3;
+			if (seq4 != '\0')
+				unprocessChars ~= seq4;
 		}
 		return cast(Key)c;
 	}
