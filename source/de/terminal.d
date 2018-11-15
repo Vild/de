@@ -38,7 +38,9 @@ enum Key : long {
 	home,
 	end,
 	pageUp,
-	pageDown
+	pageDown,
+
+	shiftTab
 }
 
 enum Color {
@@ -254,6 +256,8 @@ public static:
 				case 'H':
 				case 'F':
 					return arrowKeys(seq1);
+				case 'Z':
+					return Key.shiftTab;
 				default:
 					break;
 				}

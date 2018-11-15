@@ -176,11 +176,42 @@ public:
 					Terminal.write("\x1b[0m");
 				}
 			} else {
-				import std.algorithm : min;
+				import std.algorithm : min, countUntil;
 
 				Line* l = &_lines[row];
 
-				Terminal.write((*l)[_scrollX .. _scrollX + Terminal.size[0] - _lineNumberWidth]);
+				if (_highlightWordQuery.length && l.text.rawData.countUntil(_highlightWordQuery.rawData) >= 0) {
+					Line tmpLine = *l;
+					Line.Part[] parts;
+					foreach (Line.Part p; tmpLine.textParts) {
+						/+while (p.str.rawData.length) {
+							ptrdiff_t splitter = p.str.rawData.countUntil(_highlightWordQuery.rawData);
+							if (splitter < 0)
+								break;
+
+							Line.Part tmp = p;
+							if (splitter > 0) {
+								tmp.str.rawData = p.str.rawData[0 .. splitter];
+								tmp.style.crossedOut = true;
+								parts ~= tmp;
+							}
+							/*{
+								tmp.str.rawData = _highlightWordQuery.rawData; //p.str.rawData[splitter .. splitter + _highlightWordQuery.rawData.length];
+								tmp.style.reverse = true;
+								parts ~= tmp;
+							}*/
+							p.str.rawData = p.str.rawData[splitter /*+ _highlightWordQuery.rawData.length */.. $];
+							break;
+						}
+
+						if (p.str.rawData.length)+/
+						p.style.underscore = true;
+						parts ~= p;
+					}
+					tmpLine.textParts = parts;
+					Terminal.write(tmpLine[_scrollX .. _scrollX + Terminal.size[0] - _lineNumberWidth]);
+				} else
+					Terminal.write((*l)[_scrollX .. _scrollX + Terminal.size[0] - _lineNumberWidth]);
 			}
 		}
 	}
@@ -356,14 +387,14 @@ public:
 		_dirtyFactor++;
 	}
 
-	bool getStringInput(string question, ref string answer) {
-		void dummy(string query, Key ch) {
+	bool getStringInput(string question, ref UTFString answer) {
+		void dummy(UTFString query, Key ch) {
 		}
 
 		return getStringInput(question, answer, &dummy);
 	}
 
-	bool getStringInput(string question, ref string answer, void delegate(string query, Key ch) callback) {
+	bool getStringInput(string question, ref UTFString answer, void delegate(UTFString query, Key ch) callback) {
 		bool oldSCI = _showCommandInput;
 		scope (exit) {
 			_showCommandInput = oldSCI;
@@ -388,10 +419,10 @@ public:
 
 			if (k == Key.unknown)
 				continue;
-			callback(cast(string)_commandLine.textParts[1].str.rawData, k);
 			switch (k) {
 			case Key.return_:
-				answer = _commandLine.textParts[1].str.rawData.idup;
+				answer = _commandLine.textParts[1].str;
+				callback(_commandLine.textParts[1].str, k);
 				return true;
 			case Key.arrowLeft:
 				if (idx > 0)
@@ -427,6 +458,8 @@ public:
 				}
 				break;
 			}
+
+			callback(_commandLine.textParts[1].str, k);
 		}
 	}
 
@@ -512,8 +545,10 @@ public:
 
 				if (!_file)
 					_file = getcwd() ~ "/";
-				if (!getStringInput("Filepath", _file))
+				UTFString file;
+				if (!getStringInput("Filepath", file))
 					break;
+				_file = file.rawData.idup;
 
 				_file = absolutePath(_file);
 			}
@@ -521,26 +556,73 @@ public:
 			break;
 
 		case CTRL_KEY('f'):
-			string query;
 			long oldRow = _row;
 			long oldDataIdx = _dataIdx;
 			long oldScrollX = _scrollX;
 			long oldScrollY = _scrollY;
-			if (!getStringInput("Search (ESC to cancel)", query, (string str, Key key) {
-					foreach (rowIdx, ref Line line; _lines) {
+
+			long lastMatch = oldRow; // -1;
+			int direction = 1;
+			bool applyDirection = false;
+			UTFString query;
+			if (!getStringInput("Search (ESC to cancel)", query, (UTFString str, Key key) {
+					_highlightWordQuery = str;
+					updateScreen();
+					refreshScreen();
+					Terminal.flush();
+
+					if (key == '\r' || key == '\b')
+						return;
+					else if (key == '\t') {
+						direction = 1;
+						applyDirection = true;
+						//current += lastMatch;
+					} else if (key == Key.shiftTab) {
+						direction = -1;
+						applyDirection = true;
+					} else {
+						lastMatch = oldRow;
+						applyDirection = false;
+					}
+
+					long current = lastMatch;
+
+					foreach (rowIdx; 0 .. _lines.length) {
 						import std.algorithm : countUntil;
 
-						ptrdiff_t idx = line.text.rawData.countUntil(str);
+						if (applyDirection)
+							current += direction;
+						else
+							applyDirection = true;
+
+						if (current == -1)
+							current = _lines.length - 1;
+						else if (current == _lines.length)
+							current = 0;
+
+						Line* line = &_lines[current];
+						ptrdiff_t idx = line.text.rawData.countUntil(str.rawData);
 						if (idx < 0)
 							continue;
 
-						_row = rowIdx;
+						lastMatch = current;
+						_row = current;
 
 						_dataIdx = _lines[_row].indexToColumn(idx);
 						_scrollY = long.max;
 						applyScroll();
-						break;
+						updateScreen();
+						refreshScreen();
+						return;
 					}
+					// Didn't find the line
+					_row = oldRow;
+					_dataIdx = oldDataIdx;
+					_scrollX = oldScrollX;
+					_scrollY = oldScrollY;
+					applyScroll();
+					updateScreen();
+					refreshScreen();
 				}) || !query.length) {
 				_row = oldRow;
 				_dataIdx = oldDataIdx;
@@ -548,6 +630,9 @@ public:
 				_scrollY = oldScrollY;
 				applyScroll();
 			}
+			_highlightWordQuery = UTFString();
+			updateScreen();
+			refreshScreen();
 			break;
 
 		case Key.arrowUp:
@@ -646,6 +731,8 @@ private:
 	ulong _statusHeight = 1;
 
 	bool[] _refreshLines;
+
+	UTFString _highlightWordQuery;
 
 	struct Status {
 		Line line;

@@ -36,10 +36,8 @@ size_t getStringWidth(String)(String str) if (isSomeChar!(ElementType!String)) {
 	size_t len;
 
 	foreach (Grapheme grapheme; str.byGrapheme) {
-		debug foreach (ch; grapheme[][1 .. $])
-			assert(ch.getCharSize == 0, format("'%X'.getCharSize should be zero, it is: %d", ch, ch.getCharSize));
-
-		len += grapheme[0].getCharSize;
+		foreach (ch; grapheme[])
+			len += grapheme[0].getCharSize;
 	}
 	return len;
 }
@@ -288,6 +286,11 @@ struct UTFString {
 		}
 
 		return result;
+	}
+
+	@property void rawData(char[] data) {
+		_utf8Data = data;
+		_refreshData();
 	}
 
 	@property char[] rawData() {

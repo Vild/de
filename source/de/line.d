@@ -74,7 +74,9 @@ struct Line {
 		}
 
 		void slice(scope void delegate(const(char)[]) sink, size_t x, size_t y) {
-			assert(x < y, format("%d < %d", x, y));
+			assert(x <= y, format("%d <= %d", x, y));
+			if (x == y)
+				return;
 			assert(x <= renderWidth, format(", y=%d), x=%d is outside of string(len: %d)", y, x, renderWidth));
 			assert(y <= renderWidth, format(", x=%d), y=%d is outside of string(len: %d)", x, y, renderWidth));
 
