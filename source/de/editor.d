@@ -497,7 +497,7 @@ public:
 			return true;
 		switch (k) {
 		default:
-			if (k.isTextChar && k <= Key.lettersEnd)
+			if ((k.isTextChar || k == '\t') && k <= Key.lettersEnd)
 				addChar(cast(dchar)k);
 			applyScroll();
 			break;
