@@ -40,7 +40,12 @@ enum Key : long {
 	pageUp,
 	pageDown,
 
-	shiftTab
+	shiftTab,
+
+	altUp,
+	altDown,
+	altLeft,
+	altRight
 }
 
 enum Color {
@@ -235,18 +240,37 @@ public static:
 					else if (seq1 == '1' && seq2 == ';') {
 						seq3 = readCh();
 						seq4 = readCh();
-						if (seq3 != '5')
-							break;
-						switch (seq4) {
-						case 'A':
-							return Key.arrowCtrlUp;
-						case 'B':
-							return Key.arrowCtrlDown;
-						case 'C':
-							return Key.arrowCtrlRight;
-						case 'D':
-							return Key.arrowCtrlLeft;
+						switch (seq3) {
+						case '3':
+							switch (seq4) {
+							case 'A':
+								return Key.altUp;
+							case 'B':
+								return Key.altDown;
+							case 'C':
+								return Key.altRight;
+							case 'D':
+								return Key.altLeft;
 
+							default:
+								break;
+							}
+							break;
+						case '5':
+							switch (seq4) {
+							case 'A':
+								return Key.arrowCtrlUp;
+							case 'B':
+								return Key.arrowCtrlDown;
+							case 'C':
+								return Key.arrowCtrlRight;
+							case 'D':
+								return Key.arrowCtrlLeft;
+
+							default:
+								break;
+							}
+							break;
 						default:
 							break;
 						}

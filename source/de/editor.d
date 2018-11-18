@@ -141,6 +141,8 @@ public:
 	}
 
 	void drawRows() {
+		import std.algorithm : min, countUntil;
+
 		auto screenHeight = Terminal.size[1] - _statusHeight;
 
 		foreach (long y, refresh; _refreshLines) {
@@ -150,14 +152,22 @@ public:
 			Terminal.moveTo(0, y);
 			Terminal.write("\x1b[49m");
 			Terminal.clearLine();
+
 			if (_showLineNumber) {
 				import de.line : TextStyle;
 
-				TextStyle number, line;
-				number.bright = true;
-				line.dim = true;
-				Terminal.write(format("%s %*d \x1b[0m%s%c\x1b[0m ", number, _lineNumberWidth - _lineNumberDesignWidth, row + 1,
-						line, Config.lineNumberSeparator));
+				TextStyle numberStyle, lineStyle;
+				numberStyle.bright = true;
+				lineStyle.dim = true;
+				if (_row == row)
+					numberStyle.fg = Color.brightYellow;
+
+				if (_highlightWordQuery.length && row >= 0 && row < _lines.length
+						&& _lines[row].text.rawData.countUntil(_highlightWordQuery.rawData) >= 0)
+					numberStyle.underscore = true;
+
+				Terminal.write(format("%s %*d \x1b[0m%s%c\x1b[0m ", numberStyle, _lineNumberWidth - _lineNumberDesignWidth,
+						row + 1, lineStyle, Config.lineNumberSeparator));
 			}
 
 			if (row < 0 || row >= _lines.length) {
@@ -176,7 +186,8 @@ public:
 					Terminal.write("\x1b[0m");
 				}
 			} else {
-				import std.algorithm : min, countUntil;
+				if (row < 0 || row >= _lines.length)
+					continue;
 
 				Line* l = &_lines[row];
 
@@ -184,31 +195,11 @@ public:
 					Line tmpLine = *l;
 					Line.Part[] parts;
 					foreach (Line.Part p; tmpLine.textParts) {
-						/+while (p.str.rawData.length) {
-							ptrdiff_t splitter = p.str.rawData.countUntil(_highlightWordQuery.rawData);
-							if (splitter < 0)
-								break;
-
-							Line.Part tmp = p;
-							if (splitter > 0) {
-								tmp.str.rawData = p.str.rawData[0 .. splitter];
-								tmp.style.crossedOut = true;
-								parts ~= tmp;
-							}
-							/*{
-								tmp.str.rawData = _highlightWordQuery.rawData; //p.str.rawData[splitter .. splitter + _highlightWordQuery.rawData.length];
-								tmp.style.reverse = true;
-								parts ~= tmp;
-							}*/
-							p.str.rawData = p.str.rawData[splitter /*+ _highlightWordQuery.rawData.length */.. $];
-							break;
-						}
-
-						if (p.str.rawData.length)+/
 						p.style.underscore = true;
 						parts ~= p;
 					}
 					tmpLine.textParts = parts;
+
 					Terminal.write(tmpLine[_scrollX .. _scrollX + Terminal.size[0] - _lineNumberWidth]);
 				} else
 					Terminal.write((*l)[_scrollX .. _scrollX + Terminal.size[0] - _lineNumberWidth]);
@@ -311,9 +302,17 @@ public:
 		// of that tab character.
 		const long renderedCursorX = l.indexToColumn(_dataIdx);
 
-		Terminal.moveTo(renderedCursorX + _lineNumberWidth - _scrollX, (_row - _scrollY));
+		{
+			long curX = renderedCursorX - _scrollX + _lineNumberWidth;
+			long curY = _row - _scrollY;
 
-		Terminal.cursorVisibility = true;
+			if (curX >= _lineNumberWidth && curX < Terminal.size[0] && curY >= 0 && curY < Terminal.size[1]) {
+				Terminal.moveTo(curX, curY);
+				Terminal.cursorVisibility = true;
+			} else
+				Terminal.cursorVisibility = false;
+		}
+
 		Terminal.flush();
 	}
 
@@ -333,7 +332,8 @@ public:
 
 		_column = _lines[_row].indexToColumn(_dataIdx);
 
-		_refreshLines[_row - _scrollY] = true;
+		if (_row - _scrollY >= 0 && _row - _scrollY < _refreshLines.length)
+			_refreshLines[_row - _scrollY] = true;
 	}
 
 	enum RemoveDirection {
@@ -474,16 +474,21 @@ public:
 
 		alias updateScreen = () { _refreshLines.each!((ref x) => x = true); };
 
-		void applyScroll() {
-			if (_row < _scrollY)
-				_scrollY = _row;
-			else if (_row >= _scrollY + screenHeight)
-				_scrollY = (_row - screenHeight) + 1;
+		void applyScroll(bool allowCursorToBeOutside = false) {
+			_scrollX = _scrollX.max(0);
+			_scrollY = _scrollY.max(-screenHeight + 1).min(_lines.length - 1);
 
-			if (_column < _scrollX)
-				_scrollX = _column;
-			else if (_column >= (Terminal.size[0] - _lineNumberWidth) + _scrollX)
-				_scrollX = _column - (Terminal.size[0] - _lineNumberWidth) + 1;
+			if (!allowCursorToBeOutside) {
+				if (_row < _scrollY)
+					_scrollY = _row;
+				else if (_row >= _scrollY + screenHeight)
+					_scrollY = (_row - screenHeight) + 1;
+
+				if (_column < _scrollX)
+					_scrollX = _column;
+				else if (_column >= (Terminal.size[0] - _lineNumberWidth) + _scrollX)
+					_scrollX = _column - (Terminal.size[0] - _lineNumberWidth) + 1;
+			}
 			updateScreen();
 		}
 
@@ -494,6 +499,7 @@ public:
 		default:
 			if (k.isTextChar && k <= Key.lettersEnd)
 				addChar(cast(dchar)k);
+			applyScroll();
 			break;
 
 		case Key.return_:
@@ -706,6 +712,26 @@ public:
 			_row = min(_lines.length - 1, _scrollY + screenHeight * 2 - 1);
 			applyScroll();
 			break;
+
+		case Key.altUp:
+			_scrollY--;
+			applyScroll(true);
+			break;
+
+		case Key.altDown:
+			_scrollY++;
+			applyScroll(true);
+			break;
+
+		case Key.altLeft:
+			_scrollX--;
+			applyScroll(true);
+			break;
+
+		case Key.altRight:
+			_scrollX++;
+			applyScroll(true);
+			break;
 		}
 
 		quitTimes = 4;
@@ -722,7 +748,7 @@ private:
 	Line[] _lines = [Line()];
 
 	bool _showLineNumber = true;
-	ulong _lineNumberWidth = 5;
+	long _lineNumberWidth = 5;
 	enum ulong _lineNumberMinWidth = 3;
 	enum ulong _lineNumberDesignWidth = 4;
 
